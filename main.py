@@ -9,6 +9,7 @@ Commands:
   inmail   Workflow 3 — draft personalised InMails for a list of candidates.
   qualify  Workflow 4 — qualify a candidate from their reply thread.
   longlist Workflow 5 — compile qualified candidates into a ranked longlist.
+  run      Guided end-to-end run of all 5 workflows for one mandate.
 """
 from __future__ import annotations
 
@@ -416,6 +417,185 @@ def cmd_longlist(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stage_banner(title: str) -> None:
+    print("\n" + "-" * 60)
+    print(title)
+    print("-" * 60)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Guided end-to-end run of all 5 workflows for one mandate."""
+    from pathlib import Path
+
+    from adapters.dripify_export import export_inmail
+    from adapters.linkedin_csv import load_candidates
+    from agent.claude_client import ClaudeClient, ClaudeError
+    from workflows.intake import (
+        format_criteria,
+        generate_search_criteria,
+        save_criteria,
+    )
+    from workflows.inmail import RoleContext, draft_all
+    from workflows.longlist import (
+        LonglistContext,
+        compile_longlist,
+        format_longlist,
+        load_qualification_summaries,
+        save_longlist,
+    )
+    from workflows.pipeline import create_mandate
+    from workflows.qualify import (
+        QualifyContext,
+        format_summary,
+        qualify_candidate,
+        save_summary,
+    )
+    from workflows.rank import format_rankings, rank_candidates, save_rankings
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    try:
+        # --- Stage 1: Intake -------------------------------------------------
+        _stage_banner("Stage 1 — Intake & brief")
+        brief = _collect_brief_interactive()
+        if not brief.role_title:
+            print("ERROR: a role title is required.")
+            return 1
+
+        print("\nGenerating search criteria...")
+        criteria = generate_search_criteria(brief, client)
+        print("\n" + format_criteria(criteria) + "\n")
+
+        mandate_name = f"{brief.client_name} {brief.role_title}".strip()
+        mandate = create_mandate(mandate_name or brief.role_title)
+        save_criteria(criteria, brief, out_dir=mandate.folder)
+        print(f"Mandate workspace: {mandate.folder}")
+
+        # --- Gate: LinkedIn RPS search --------------------------------------
+        _stage_banner("GATE — LinkedIn RPS candidate search")
+        print("Run the search in LinkedIn RPS using this Boolean string:\n")
+        print(f"  {criteria.boolean_string}\n")
+        print("Export the matching candidates as a CSV file.")
+        csv_in = input("Path to the candidate CSV (blank to stop here): ").strip()
+        if not csv_in:
+            print(f"\nStopped after intake. Resume later with: rank --criteria "
+                  f"<the saved criteria> --candidates <your CSV>")
+            return 0
+        csv_path = Path(csv_in)
+        if not csv_path.exists():
+            print(f"ERROR: candidate CSV not found: {csv_path}")
+            return 1
+        candidates = load_candidates(csv_path)
+        if not candidates:
+            print("ERROR: no candidates found in the CSV.")
+            return 1
+
+        # --- Stage 2: Candidate ranking -------------------------------------
+        _stage_banner("Stage 2 — Candidate ranking")
+        print(f"Ranking {len(candidates)} candidate(s)...\n")
+        rankings = rank_candidates(candidates, criteria, client)
+        print(format_rankings(rankings))
+        save_rankings(rankings, "ranking", out_dir=mandate.folder)
+
+        priority_names = {
+            r.candidate_name.strip().lower()
+            for r in rankings
+            if r.recommendation.lower() == "prioritise"
+        }
+        choice = input(
+            "\nDraft InMails for [a]ll candidates or [p]rioritised only? [p]: "
+        ).strip().lower()
+        if choice == "a" or not priority_names:
+            targets = candidates
+        else:
+            targets = [
+                c for c in candidates
+                if c.name.strip().lower() in priority_names
+            ] or candidates
+
+        # --- Stage 3: Personalised outreach ---------------------------------
+        _stage_banner("Stage 3 — Personalised InMail drafting")
+        selling_point = input("One key selling point for outreach: ").strip()
+        role = RoleContext(
+            role_title=brief.role_title,
+            seniority=brief.seniority,
+            role_location=brief.location,
+            selling_point=selling_point,
+        )
+        print(f"\nDrafting InMails for {len(targets)} candidate(s)...\n")
+        for candidate, draft, warnings in draft_all(targets, role, client):
+            path = export_inmail(candidate.name, draft, mandate.inmail_dir)
+            print(f"  {candidate.name or 'Unknown'} -> {path}")
+            for warning in warnings:
+                print(f"    WARNING: {warning}")
+
+        # --- Gate: Dripify outreach -----------------------------------------
+        _stage_banner("GATE — Dripify outreach & replies")
+        print("Send the drafts via Dripify (WangXQ account, max 50 InMails/day).")
+        print("As candidates reply, provide each reply thread to qualify them.")
+
+        client_type = brief.industry or brief.client_name
+        qualify_context = QualifyContext(
+            role_title=brief.role_title,
+            client_type=client_type,
+            location=brief.location,
+            must_have=brief.must_have,
+        )
+        qualified_any = False
+        while True:
+            thread_in = input(
+                "Path to a reply thread file (blank to finish): "
+            ).strip()
+            if not thread_in:
+                break
+            thread_path = Path(thread_in)
+            if not thread_path.exists():
+                print(f"  not found: {thread_path}")
+                continue
+            thread = thread_path.read_text(encoding="utf-8")
+
+            _stage_banner("Stage 4 — Candidate qualification")
+            summary = qualify_candidate(thread, qualify_context, client)
+            print(format_summary(summary))
+            save_summary(summary, out_dir=mandate.qualifications_dir)
+            qualified_any = True
+
+        if not qualified_any:
+            print("\nNo replies qualified yet. Run 'longlist' later once "
+                  "qualification summaries have been collected.")
+            print(f"Mandate workspace: {mandate.folder}")
+            return 0
+
+        # --- Stage 5: Longlist ----------------------------------------------
+        _stage_banner("Stage 5 — Longlist compilation")
+        summaries = load_qualification_summaries(mandate.qualifications_dir)
+        longlist_context = LonglistContext(
+            role_title=brief.role_title,
+            client_type=client_type,
+            location=brief.location,
+            must_have=brief.must_have,
+        )
+        print(f"Compiling a longlist from {len(summaries)} summary(ies)...\n")
+        longlist = compile_longlist(summaries, longlist_context, client)
+        print(format_longlist(longlist))
+        paths = save_longlist(
+            longlist, longlist_context, "longlist", out_dir=mandate.folder
+        )
+        print(f"\nSaved JSON:     {paths['json']}")
+        print(f"Saved Markdown: {paths['markdown']}")
+        print(f"Saved Excel:    {paths['excel']}")
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print(f"\nMandate complete. All artifacts in: {mandate.folder}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jd-ai-search-agent",
@@ -526,6 +706,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Directory for the longlist files (default: data/longlists).",
     )
+
+    sub.add_parser(
+        "run",
+        help="Guided end-to-end run of all 5 workflows for one mandate.",
+    )
     return parser
 
 
@@ -545,6 +730,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_qualify(args)
     if args.command == "longlist":
         return cmd_longlist(args)
+    if args.command == "run":
+        return cmd_run(args)
 
     parser.print_help()
     return 0
