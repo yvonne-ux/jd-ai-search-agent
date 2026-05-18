@@ -1,0 +1,7 @@
+Role: {{role_title}} | Client type: {{client_type}} | Location: {{location}}
+Must-have: {{must_have}}
+
+Candidate summaries:
+{{array_of_qualification_summaries}}
+
+Generate the ranked longlist JSON.

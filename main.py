@@ -8,6 +8,7 @@ Commands:
   rank     Workflow 2 — score and rank candidates against the role criteria.
   inmail   Workflow 3 — draft personalised InMails for a list of candidates.
   qualify  Workflow 4 — qualify a candidate from their reply thread.
+  longlist Workflow 5 — compile qualified candidates into a ranked longlist.
 """
 from __future__ import annotations
 
@@ -356,6 +357,65 @@ def cmd_qualify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_longlist(args: argparse.Namespace) -> int:
+    """Workflow 5 — compile qualified candidates into a ranked longlist."""
+    from pathlib import Path
+
+    from agent.claude_client import ClaudeClient, ClaudeError
+    from workflows.longlist import (
+        MIN_SUMMARIES,
+        LonglistContext,
+        compile_longlist,
+        format_longlist,
+        load_qualification_summaries,
+        save_longlist,
+    )
+
+    summaries = load_qualification_summaries(args.summaries)
+    if not summaries:
+        print(f"ERROR: no qualification summaries found in {args.summaries}")
+        return 1
+    if len(summaries) < MIN_SUMMARIES:
+        print(
+            f"Note: {len(summaries)} summary(ies) found — the brief compiles a "
+            f"longlist at {MIN_SUMMARIES}+. Proceeding anyway."
+        )
+
+    criteria_path = Path(args.criteria)
+    if not criteria_path.exists():
+        print(f"ERROR: criteria file not found: {criteria_path}")
+        return 1
+    try:
+        context = LonglistContext.from_intake_file(criteria_path)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: could not read criteria file: {exc}")
+        return 1
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print(f"\nCompiling a longlist from {len(summaries)} summary(ies)...\n")
+    try:
+        longlist = compile_longlist(summaries, context, client)
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("=" * 60)
+    print(format_longlist(longlist))
+    print("=" * 60 + "\n")
+
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    paths = save_longlist(longlist, context, criteria_path.stem, out_dir)
+    print(f"Saved JSON:     {paths['json']}")
+    print(f"Saved Markdown: {paths['markdown']}")
+    print(f"Saved Excel:    {paths['excel']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jd-ai-search-agent",
@@ -443,6 +503,29 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Intake criteria JSON for role context; prompted if omitted.",
     )
+
+    longlist = sub.add_parser(
+        "longlist",
+        help="Workflow 5 — compile qualified candidates into a ranked longlist.",
+    )
+    longlist.add_argument(
+        "--summaries",
+        metavar="DIR",
+        default="data/qualifications",
+        help="Directory of qualification summary JSON files "
+             "(default: data/qualifications).",
+    )
+    longlist.add_argument(
+        "--criteria",
+        metavar="PATH",
+        required=True,
+        help="Intake criteria JSON for the role.",
+    )
+    longlist.add_argument(
+        "--out-dir",
+        metavar="PATH",
+        help="Directory for the longlist files (default: data/longlists).",
+    )
     return parser
 
 
@@ -460,6 +543,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_inmail(args)
     if args.command == "qualify":
         return cmd_qualify(args)
+    if args.command == "longlist":
+        return cmd_longlist(args)
 
     parser.print_help()
     return 0
