@@ -1,0 +1,12 @@
+New mandate brief:
+  Client: {{client_name}}
+  Role: {{role_title}}
+  Industry: {{industry}}
+  Location: {{location}}
+  Seniority: {{seniority}}
+  Key responsibilities: {{responsibilities}}
+  Must-have background: {{must_have}}
+  Nice-to-have: {{nice_to_have}}
+  Exclusions: {{exclusions}}
+
+Generate the search criteria JSON.

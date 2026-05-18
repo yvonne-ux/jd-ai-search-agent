@@ -1,13 +1,15 @@
 """JD AI Search Agent — CLI entry point.
 
-Phase 1A scaffold. See CLAUDE.md for project context and PLAN.md for the build plan.
+See CLAUDE.md for project context and PLAN.md for the build plan.
 
 Commands:
-  check   Verify the Anthropic API connection.
+  check    Verify the Anthropic API connection.
+  intake   Workflow 1 — turn a mandate brief into LinkedIn search criteria.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -57,13 +59,89 @@ def cmd_check() -> int:
     return 0
 
 
+def _collect_brief_interactive():
+    """Prompt the consultant for each mandate brief field."""
+    from workflows.intake import BRIEF_FIELDS, MandateBrief
+
+    print("Enter the mandate brief. Press Enter to leave a field blank.\n")
+    values = {}
+    for field, label in BRIEF_FIELDS:
+        values[field] = input(f"  {label}: ").strip()
+    return MandateBrief.from_dict(values)
+
+
+def cmd_intake(args: argparse.Namespace) -> int:
+    """Workflow 1 — generate search criteria from a mandate brief."""
+    from workflows.intake import (
+        MandateBrief,
+        format_criteria,
+        generate_search_criteria,
+        save_criteria,
+    )
+    from agent.claude_client import ClaudeClient, ClaudeError
+
+    if args.from_file:
+        try:
+            data = json.loads(open(args.from_file, encoding="utf-8").read())
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"ERROR: could not read brief file: {exc}")
+            return 1
+        # Accept either a bare brief or the {"brief": {...}} wrapper.
+        brief = MandateBrief.from_dict(data.get("brief", data))
+    else:
+        brief = _collect_brief_interactive()
+
+    if not brief.role_title:
+        print("ERROR: a role title is required.")
+        return 1
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("\nGenerating search criteria...")
+    try:
+        criteria = generate_search_criteria(brief, client)
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("\n" + "=" * 60)
+    print(format_criteria(criteria))
+    print("=" * 60 + "\n")
+
+    if not args.from_file:
+        answer = input("Save these criteria? [Y/n]: ").strip().lower()
+        if answer == "n":
+            print("Discarded — nothing saved.")
+            return 0
+
+    path = save_criteria(criteria, brief)
+    print(f"Saved to {path}")
+    print("Review and edit that JSON file before running the LinkedIn RPS search.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jd-ai-search-agent",
         description="AI executive search agent for JonDavidson Pte Ltd.",
     )
     sub = parser.add_subparsers(dest="command")
+
     sub.add_parser("check", help="Verify the Anthropic API connection.")
+
+    intake = sub.add_parser(
+        "intake",
+        help="Workflow 1 — turn a mandate brief into LinkedIn search criteria.",
+    )
+    intake.add_argument(
+        "--from-file",
+        metavar="PATH",
+        help="Read the mandate brief from a JSON file instead of prompting.",
+    )
     return parser
 
 
@@ -73,6 +151,8 @@ def main(argv: "list[str] | None" = None) -> int:
 
     if args.command == "check":
         return cmd_check()
+    if args.command == "intake":
+        return cmd_intake(args)
 
     parser.print_help()
     return 0
