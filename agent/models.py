@@ -75,6 +75,36 @@ class Candidate:
 
 
 @dataclass
+class CandidateRanking:
+    """One entry in the Candidate Ranking workflow output (process map, Stage 2)."""
+
+    rank: int = 0
+    candidate_name: str = ""
+    current_title: str = ""
+    current_company: str = ""
+    fit_score: int = 0              # 1-10
+    matches: List[str] = field(default_factory=list)
+    gaps: List[str] = field(default_factory=list)
+    recommendation: str = ""        # Prioritise / Consider / Skip
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CandidateRanking":
+        return cls(
+            rank=_as_int(data.get("rank")),
+            candidate_name=str(data.get("candidate_name", "") or ""),
+            current_title=str(data.get("current_title", "") or ""),
+            current_company=str(data.get("current_company", "") or ""),
+            fit_score=_as_int(data.get("fit_score")),
+            matches=_as_str_list(data.get("matches")),
+            gaps=_as_str_list(data.get("gaps")),
+            recommendation=str(data.get("recommendation", "") or ""),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class QualificationSummary:
     """Output of Workflow 3 — Candidate Qualification Summary."""
 

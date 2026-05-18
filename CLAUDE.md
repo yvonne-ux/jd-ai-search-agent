@@ -18,11 +18,17 @@ reviews and approves output at each workflow boundary.
 
 ## Source of truth
 
-This project is scoped by **`JD_AI_Agent_Developer_Brief_May2026.docx`** (v1.0, May 2026,
-prepared by Yvonne, CCO) — kept in this folder. The brief is authoritative for prompts,
-JSON schemas, models, compliance rules, and phasing. A related document, Desmond Ong's
-`Project_Proposal_AI_Agent_Jondavidson_May2026.pdf`, is referenced by the brief but not
-yet in the repo.
+This project is scoped by two confidential documents kept in this folder (both
+gitignored — local only):
+
+- **`JD_AI_Agent_Developer_Brief_May2026.docx`** (v1.0, May 2026, by Yvonne, CCO) —
+  authoritative for the 4 core prompts, JSON schemas, models, compliance, and phasing.
+- **`JD_AI_Agent_Process_Map.pdf`** (May 2026) — the intake-to-longlist process map. It
+  adds a Stage 2 candidate-ranking step not in the brief's prompt framework, and names
+  the Stage 5 systems (RecruitCRM, Google Drive, Gmail).
+
+Desmond Ong's `Project_Proposal_AI_Agent_Jondavidson_May2026.pdf` is referenced by the
+brief but not yet in the repo.
 
 ## Tech foundation
 
@@ -40,28 +46,35 @@ yet in the repo.
   dashboard. The agent only **outputs ready-to-send InMail drafts as text files**.
   (Live Dripify webhook integration is a later phase — see roadmap.)
 
-## The 4 workflows (Claude Code prompt framework)
+## The 5 workflows
 
-Each workflow is implemented as a callable tool with structured input and JSON output.
-Exact system prompts, user-prompt templates, and field schemas are defined in the brief,
-Section 5 — build to those.
+Each workflow is a callable tool with structured input and JSON output. They are listed
+below in process order (the order a mandate flows through them). Workflows 1, 3, 4, and 5
+implement the brief's prompt framework (Section 5); workflow 2 comes from the process map.
 
-1. **Intake → Search Criteria** (Sonnet)
+1. **Intake → Search Criteria** — brief Prompt 1 (Sonnet)
    Trigger: consultant submits a new mandate brief.
    Output JSON: `job_titles`, `seniority_levels`, `target_companies`, `industries`,
    `locations`, `boolean_string`, `exclusions`, `search_rationale`.
 
-2. **Personalised InMail Draft** (Sonnet)
+2. **Candidate Ranking** — process map, Stage 2 (Sonnet)
+   Trigger: consultant exports a candidate CSV from LinkedIn RPS.
+   The agent scores each candidate against the role's search criteria and ranks them so
+   consultants prioritise outreach to the strongest matches.
+   Output JSON: `rankings` array (`rank`, `candidate_name`, `current_title`,
+   `current_company`, `fit_score` 1–10, `matches`, `gaps`, `recommendation`).
+
+3. **Personalised InMail Draft** — brief Prompt 2 (Sonnet)
    Trigger: a candidate profile is passed in for outreach.
    Output: plain-text InMail, max 150 words, references something specific from the
    profile, never names the client ("our client"), warm peer-to-peer tone, soft CTA.
 
-3. **Candidate Qualification Summary** (Sonnet, with Haiku extraction)
+4. **Candidate Qualification Summary** — brief Prompt 3 (Sonnet, with Haiku extraction)
    Trigger: a candidate replies and the message thread is passed in.
    Output JSON: `candidate_name`, `current_role`, `interest_level`, `availability`,
    `location_fit`, `key_positives`, `concerns`, `recommended_action`, `summary`.
 
-4. **Longlist Compilation** (Sonnet)
+5. **Longlist Compilation** — brief Prompt 4 (Sonnet)
    Trigger: 15+ candidate qualification summaries collected for a mandate.
    Output JSON: ranked array (`rank`, `candidate_name`, `current_title`,
    `current_company`, `interest_level`, `fit_score` 1–10, `one_line_summary`,
@@ -69,15 +82,15 @@ Section 5 — build to those.
 
 ## Build scope — Phase 1A PoC
 
-This build delivers the **Phase 1A proof-of-concept**: the 4 prompts as CLI tools,
+This build delivers the **Phase 1A proof-of-concept**: the 5 workflows as CLI tools,
 driven by **manual input** (CSV in, text files out), tested on one live JD mandate.
 
-**Explicitly out of scope for this build** (later phases per the brief):
+**Explicitly out of scope for this build** (later phases per the brief and process map):
 
 - Dripify webhook integration and reply detection (Phase 1B).
 - n8n / Make.com workflow orchestration (Phase 1B).
-- Google Sheets candidate tracker auto-population (Phase 2).
-- Google Drive MCP archiving of longlist documents (Phase 2).
+- Stage 5 data sync — RecruitCRM candidate records, Google Drive longlist archiving,
+  Gmail delivery of the longlist to the client (Phase 2).
 - Multi-user Windows RDS server deployment (Phase 3).
 
 ## Compliance & governance

@@ -2,8 +2,8 @@
 .env
 
 # Confidential internal documents — keep local, do not push
-JD_AI_Agent_Developer_Brief_May2026.docx
 *.docx
+*.pdf
 
 # Candidate data and generated output (PDPA — never commit)
 data/*

@@ -5,7 +5,8 @@ See CLAUDE.md for project context and PLAN.md for the build plan.
 Commands:
   check    Verify the Anthropic API connection.
   intake   Workflow 1 — turn a mandate brief into LinkedIn search criteria.
-  inmail   Workflow 2 — draft personalised InMails for a list of candidates.
+  rank     Workflow 2 — score and rank candidates against the role criteria.
+  inmail   Workflow 3 — draft personalised InMails for a list of candidates.
 """
 from __future__ import annotations
 
@@ -125,6 +126,71 @@ def cmd_intake(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rank(args: argparse.Namespace) -> int:
+    """Workflow 2 — score and rank candidates against the role criteria."""
+    from pathlib import Path
+
+    from adapters.linkedin_csv import load_candidates
+    from agent.claude_client import ClaudeClient, ClaudeError
+    from workflows.rank import (
+        format_rankings,
+        load_criteria_from_intake,
+        rank_candidates,
+        save_rankings,
+    )
+
+    csv_path = Path(args.candidates)
+    if not csv_path.exists():
+        print(f"ERROR: candidate CSV not found: {csv_path}")
+        return 1
+    candidates = load_candidates(csv_path)
+    if not candidates:
+        print("ERROR: no candidates found in the CSV.")
+        return 1
+
+    criteria_path = Path(args.criteria)
+    if not criteria_path.exists():
+        print(f"ERROR: criteria file not found: {criteria_path}")
+        return 1
+    try:
+        criteria = load_criteria_from_intake(criteria_path)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: could not read criteria file: {exc}")
+        return 1
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print(f"\nRanking {len(candidates)} candidate(s) against the role criteria...\n")
+    try:
+        rankings = rank_candidates(candidates, criteria, client)
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("=" * 60)
+    print(format_rankings(rankings))
+    print("=" * 60 + "\n")
+
+    if args.top:
+        priority = rankings[:args.top]
+    else:
+        priority = [
+            r for r in rankings if r.recommendation.lower() == "prioritise"
+        ]
+    if priority:
+        names = ", ".join(r.candidate_name or "Unknown" for r in priority)
+        print(f"Prioritise for outreach: {names}")
+
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    path = save_rankings(rankings, criteria_path.stem, out_dir)
+    print(f"Saved ranking to {path}")
+    return 0
+
+
 def cmd_inmail(args: argparse.Namespace) -> int:
     """Workflow 2 — draft personalised InMails for a list of candidates."""
     from pathlib import Path
@@ -210,9 +276,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read the mandate brief from a JSON file instead of prompting.",
     )
 
+    rank = sub.add_parser(
+        "rank",
+        help="Workflow 2 — score and rank candidates against the role criteria.",
+    )
+    rank.add_argument(
+        "--candidates",
+        metavar="PATH",
+        required=True,
+        help="LinkedIn RPS CSV export of candidates to rank.",
+    )
+    rank.add_argument(
+        "--criteria",
+        metavar="PATH",
+        required=True,
+        help="Intake criteria JSON for the role.",
+    )
+    rank.add_argument(
+        "--top",
+        metavar="N",
+        type=int,
+        help="Flag the top N candidates (default: those recommended Prioritise).",
+    )
+    rank.add_argument(
+        "--out-dir",
+        metavar="PATH",
+        help="Directory for the ranking JSON (default: data/rankings).",
+    )
+
     inmail = sub.add_parser(
         "inmail",
-        help="Workflow 2 — draft personalised InMails for a list of candidates.",
+        help="Workflow 3 — draft personalised InMails for a list of candidates.",
     )
     inmail.add_argument(
         "--candidates",
@@ -246,6 +340,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_check()
     if args.command == "intake":
         return cmd_intake(args)
+    if args.command == "rank":
+        return cmd_rank(args)
     if args.command == "inmail":
         return cmd_inmail(args)
 

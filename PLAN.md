@@ -1,116 +1,89 @@
 # Build Plan — JD AI Search Agent (Phase 1A PoC)
 
 A step-by-step planner for building the AI executive search agent described in
-CLAUDE.md, scoped to the **Phase 1A proof-of-concept** from the developer brief
-(`JD_AI_Agent_Developer_Brief_May2026.docx`).
+CLAUDE.md, scoped to the **Phase 1A proof-of-concept**.
 
-Each phase lists its goal, the work involved, and what "done" looks like. Phases are
-ordered so each one is testable before the next begins. There is a consultant review
-gate at the end of every phase.
+Each phase lists its goal, the work involved, and what "done" looks like. There is a
+consultant review gate at the end of every phase.
 
-## How this maps to the brief's phases
+## Scope and workflow order
 
-- The brief's **Phase 1A** (Weeks 1–2) = Prompts 1–2 live, manual input.
-- The brief's **Phase 1B** (Weeks 3–4) = Prompts 3–4 + Dripify integration.
+This build delivers **5 workflows as CLI tools driven by manual input**. Four implement
+the brief's prompt framework; the fifth (Candidate Ranking) comes from the process map.
 
-This build delivers **all 4 prompts as CLI tools driven by manual input** — i.e. Phase
-1A plus the manual (non-automated) portions of Phase 1B. The automation layers — Dripify
-webhooks, n8n/Make.com, Google Sheets, Google Drive MCP, RDS — are **out of scope** and
-deferred to brief Phases 1B/2/3.
+**Process order** — how a mandate flows: Intake → Candidate Ranking → InMail →
+Qualification → Longlist.
+
+**Build order** — the order steps were implemented below — differs slightly: InMail was
+built before Candidate Ranking. This does not affect the runtime flow.
+
+Out of scope (deferred per the brief / process map): Dripify webhooks, n8n/Make.com
+orchestration, Stage 5 data sync (RecruitCRM, Google Drive, Gmail), multi-user RDS.
 
 ---
 
 ## Step 0 — Decisions & access — CONFIRMED
 
-All blockers resolved (confirmed by consultant):
-
-- [x] **Language/runtime:** Python (system default 3.9.6; brief suggests 3.11+ — code
-      written to run on 3.9+; upgrade optional).
+- [x] **Language/runtime:** Python (system 3.9.6; code runs on 3.9+).
 - [x] **Interface:** CLI tool. No web UI in v1.
-- [x] **LinkedIn RPS access:** manual **CSV export** — consultant exports candidate
-      profiles from RPS and feeds the CSV into the tool. No API, no scraping.
-- [x] **Dripify access:** manual — consultant sends from the Dripify dashboard. The
-      agent only **outputs ready-to-send InMail drafts as text files**.
-- [x] **Storage:** local files for v1. Candidate CSVs and output live in a gitignored
-      `data/` directory. 12-month retention per the brief.
-- [x] **Scope:** Phase 1A PoC — 4 prompts as CLI tools, manual input. Automation layers
-      deferred.
-- [ ] **Anthropic API key** — obtained and placed in `.env` (not committed). Done at
-      Step 1 setup.
+- [x] **LinkedIn RPS access:** manual CSV export.
+- [x] **Dripify access:** manual; agent outputs InMail drafts as text files.
+- [x] **Storage:** local files; gitignored `data/` directory; 12-month retention.
+- [x] **Scope:** Phase 1A PoC — 5 workflows as CLI tools, manual input.
+- [x] **Anthropic API key** — in `.env`, verified by a live `check` and `intake` run.
 
 ---
 
-## Step 1 — Project scaffold
+## Step 1 — Project scaffold — DONE
 
-- [ ] Create folder structure (`/agent` core logic, `/adapters`, `/prompts`,
-      `/workflows`, `/tests`, `/data` gitignored).
-- [ ] `requirements.txt` (anthropic SDK, python-dotenv).
-- [ ] `.env.example` and `.gitignore` (ignore `.env`, `/data`, caches).
-- [ ] `README.md` with setup and run instructions, written so Yvonne can run, monitor,
-      and adjust prompts independently (a brief deliverable).
-- [ ] CLI entry point (`main.py`) with a `check` command that makes a minimal
-      "hello Claude" API call.
-- [ ] Verify the Claude API call works end to end once the key is in `.env`.
-
-**Done when:** repo runs, `python main.py check` returns a successful Claude response.
+Folder structure, dependencies, `.env`/`.gitignore`, README, and a CLI `check`
+command. Verified with a live Claude API call.
 
 ---
 
-## Step 2 — Shared foundations
+## Step 2 — Shared foundations — DONE
 
-- [ ] Define structured data objects matching the brief's JSON schemas:
-      `SearchCriteria`, `Candidate`, `QualificationSummary`, `LonglistEntry`.
-- [ ] Build a thin Claude API wrapper: model selection (Sonnet 4.6 for drafting/
-      summaries, Haiku 4.5 for extraction), prompt loading, JSON response parsing,
-      retry/error handling.
-- [ ] Implement **prompt caching** for recurring mandate/role context (brief deliverable
-      — targets up to ~90% cost saving on repeated context).
-- [ ] Build a run logger for auditability (inputs, prompt, output per run).
-- [ ] Build the **LinkedIn RPS CSV adapter**: parse an exported RPS CSV into a list of
-      `Candidate` objects (tolerant of column-name variations).
-- [ ] Build the **Dripify text-file exporter**: write InMail drafts to plain `.txt`
-      files in `data/`, one per candidate, ready to copy into Dripify.
-
-**Done when:** data models, Claude wrapper, prompt caching, logger, CSV adapter, and
-text exporter exist and are unit-tested against a sample CSV.
+Data models, Claude API wrapper (model selection, prompt caching, retries, JSON
+parsing), run logger, LinkedIn RPS CSV adapter, Dripify text-file exporter. Unit-tested.
 
 ---
 
-## Step 3 — Prompt 1: Intake → Search Criteria
+## Step 3 — Workflow 1: Intake → Search Criteria — DONE
 
-- [ ] Port the brief's Prompt 1 system prompt and user-prompt template into `/prompts`.
-- [ ] CLI command to collect a mandate brief (client, role, industry, location,
-      seniority, responsibilities, must-have, nice-to-have, exclusions).
-- [ ] Produce the `SearchCriteria` JSON: `job_titles`, `seniority_levels`,
-      `target_companies`, `industries`, `locations`, `boolean_string`, `exclusions`,
-      `search_rationale`.
-- [ ] Consultant review/edit step before criteria are accepted.
-- [ ] Test against 2–3 sample briefs from real past JD mandates.
-
-**Done when:** a sample brief produces accurate, consultant-approved search criteria,
-including a ready-to-paste LinkedIn RPS Boolean string.
+Prompt 1 ported; `intake` CLI command turns a mandate brief into structured
+`SearchCriteria`. Verified with a live run.
 
 ---
 
-## Step 4 — Prompt 2: Personalised InMail Draft
+## Step 4 — Workflow 3: Personalised InMail Draft — DONE
 
-- [ ] Port the brief's Prompt 2 system prompt and user-prompt template into `/prompts`.
-- [ ] Ingest a LinkedIn RPS CSV export via the Step 2 adapter.
-- [ ] Draft a tailored InMail per candidate: max 150 words, references a specific
-      profile detail, never names the client, warm peer-to-peer tone, soft CTA, no
-      banned phrases ("I came across your profile", "exciting opportunity").
-- [ ] Write each draft to a `.txt` file via the Dripify exporter; every draft is
-      consultant-editable before sending.
-- [ ] Test drafts for personalisation quality and tone.
-
-**Done when:** a CSV of candidates produces one consultant-ready `.txt` InMail draft per
-candidate, ready to copy into Dripify.
+Prompt 2 ported; `inmail` CLI command drafts a tailored InMail per candidate from an
+RPS CSV export, with a word-count / banned-phrase quality check, exported to text files.
 
 ---
 
-## Step 5 — Prompt 3: Candidate Qualification Summary
+## Step 5 — Workflow 2: Candidate Ranking
 
-- [ ] Port the brief's Prompt 3 system prompt and user-prompt template into `/prompts`.
+(Process map, Stage 2. Runs before InMail in the process flow.)
+
+- [ ] Author the ranking system + user prompts in the JD house style (no brief prompt
+      exists for this workflow).
+- [ ] Add a `CandidateRanking` data model.
+- [ ] Build the workflow: read an RPS CSV, score every candidate against the role's
+      `SearchCriteria` in one Claude call, return a ranked list with fit scores,
+      matches, gaps, and a Prioritise / Consider / Skip recommendation.
+- [ ] Add a `rank` CLI command that displays the ranking and flags top candidates.
+- [ ] Consultant review of the ranking before outreach.
+- [ ] Test against the sample CSV and sample criteria.
+
+**Done when:** a candidate CSV plus intake criteria produces a sensible ranked list
+that a consultant agrees prioritises the right candidates.
+
+---
+
+## Step 6 — Workflow 4: Candidate Qualification Summary
+
+- [ ] Port the brief's Prompt 3 system + user templates into `prompts/`.
 - [ ] CLI input for a candidate's LinkedIn message thread (consultant pastes the thread).
 - [ ] Produce the `QualificationSummary` JSON: `candidate_name`, `current_role`,
       `interest_level`, `availability`, `location_fit`, `key_positives`, `concerns`,
@@ -124,9 +97,9 @@ recommended actions on the test set.
 
 ---
 
-## Step 6 — Prompt 4: Longlist Compilation
+## Step 7 — Workflow 5: Longlist Compilation
 
-- [ ] Port the brief's Prompt 4 system prompt and user-prompt template into `/prompts`.
+- [ ] Port the brief's Prompt 4 system + user templates into `prompts/`.
 - [ ] Aggregate qualification summaries (brief triggers at 15+) into a ranked longlist.
 - [ ] Produce the longlist JSON: ranked array (`rank`, `candidate_name`,
       `current_title`, `current_company`, `interest_level`, `fit_score` 1–10,
@@ -139,11 +112,12 @@ and reads as client-presentable.
 
 ---
 
-## Step 7 — End-to-end integration
+## Step 8 — End-to-end integration
 
-- [ ] Wire the 4 prompts into one CLI pipeline: brief → criteria → (consultant runs RPS
-      search, exports CSV) → InMail drafts → (consultant sends via Dripify, collects
-      replies) → qualification → longlist, with review gates between stages.
+- [ ] Wire the 5 workflows into one CLI pipeline: brief → criteria → (consultant runs
+      RPS search, exports CSV) → ranking → InMail drafts → (consultant sends via
+      Dripify, collects replies) → qualification → longlist, with review gates between
+      stages.
 - [ ] Run a full dry pass on one sample mandate using a sample CSV.
 
 **Done when:** one complete mandate runs end to end on realistic data with consultant
@@ -151,7 +125,7 @@ review at each gate.
 
 ---
 
-## Step 8 — Hardening & handover
+## Step 9 — Hardening & handover
 
 - [ ] Error handling for API failures, rate limits, malformed CSV data.
 - [ ] Review PDPA compliance: data minimisation, 12-month retention, `data/` cleanup.
@@ -165,13 +139,13 @@ handling has been reviewed.
 
 ---
 
-## Out of scope for this build (deferred per brief)
+## Out of scope for this build (deferred per brief / process map)
 
-Dripify webhook / reply detection, n8n / Make.com orchestration, Google Sheets tracker
-auto-population, Google Drive MCP archiving, multi-user Windows RDS deployment,
-automated sending, multi-language outreach. Revisit per brief Phases 1B / 2 / 3.
+Dripify webhook / reply detection, n8n / Make.com orchestration, Stage 5 data sync
+(RecruitCRM candidate records, Google Drive archiving, Gmail longlist delivery),
+multi-user Windows RDS deployment, automated sending, multi-language outreach.
 
 ## Build order summary
 
-Step 0 (done) → 1 (scaffold) → 2 (foundations + caching) → 3 (Intake) → 4 (InMail) →
-5 (Qualification) → 6 (Longlist) → 7 (Integration) → 8 (Hardening).
+Step 0 (done) → 1 (done) → 2 (done) → 3 Intake (done) → 4 InMail (done) →
+5 Candidate Ranking → 6 Qualification → 7 Longlist → 8 Integration → 9 Hardening.

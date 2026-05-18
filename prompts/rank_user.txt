@@ -1,0 +1,8 @@
+Role search criteria:
+{{criteria}}
+
+Candidate profiles ({{candidate_count}} total):
+{{candidates}}
+
+Score and rank all {{candidate_count}} candidates against the search criteria.
+Generate the rankings JSON.
