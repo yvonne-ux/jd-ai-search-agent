@@ -1,0 +1,7 @@
+Role we are recruiting for: {{role_title}} at {{client_type}} in {{location}}
+Must-have background: {{must_have}}
+
+LinkedIn message thread:
+{{full_message_thread}}
+
+Generate the qualification summary JSON.

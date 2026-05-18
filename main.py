@@ -7,6 +7,7 @@ Commands:
   intake   Workflow 1 — turn a mandate brief into LinkedIn search criteria.
   rank     Workflow 2 — score and rank candidates against the role criteria.
   inmail   Workflow 3 — draft personalised InMails for a list of candidates.
+  qualify  Workflow 4 — qualify a candidate from their reply thread.
 """
 from __future__ import annotations
 
@@ -257,6 +258,104 @@ def cmd_inmail(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_thread_interactive() -> str:
+    """Collect a pasted message thread, ending on a line containing only END."""
+    print("Paste the LinkedIn message thread, then a line containing only END:")
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == "END":
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def cmd_qualify(args: argparse.Namespace) -> int:
+    """Workflow 4 — qualify a candidate from their reply thread."""
+    from pathlib import Path
+
+    from agent.claude_client import ClaudeClient, ClaudeError
+    from workflows.qualify import (
+        QualifyContext,
+        format_summary,
+        normalize_action,
+        qualify_candidate,
+        save_summary,
+    )
+
+    if args.thread:
+        thread_path = Path(args.thread)
+        if not thread_path.exists():
+            print(f"ERROR: thread file not found: {thread_path}")
+            return 1
+        thread = thread_path.read_text(encoding="utf-8")
+    else:
+        thread = _read_thread_interactive()
+    if not thread.strip():
+        print("ERROR: the message thread is empty.")
+        return 1
+
+    if args.criteria:
+        try:
+            context = QualifyContext.from_intake_file(args.criteria)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: could not read criteria file: {exc}")
+            return 1
+    else:
+        print("Enter the role details:")
+        context = QualifyContext(
+            role_title=input("  Role title: ").strip(),
+            client_type=input("  Client type (industry/sector): ").strip(),
+            location=input("  Location: ").strip(),
+            must_have=input("  Must-have background: ").strip(),
+        )
+
+    if not context.role_title:
+        print("ERROR: a role title is required.")
+        return 1
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("\nGenerating qualification summary...")
+    try:
+        summary = qualify_candidate(thread, context, client)
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print("\n" + "=" * 60)
+    print(format_summary(summary))
+    print("=" * 60 + "\n")
+
+    try:
+        answer = input(
+            "Accept recommended action? [Y] or type Progress / Hold / Archive: "
+        ).strip()
+    except EOFError:
+        answer = ""
+    if answer and answer.lower() not in ("y", "yes"):
+        mapped = normalize_action(answer)
+        if mapped:
+            summary.recommended_action = mapped
+            print(f"Action overridden to: {mapped}")
+        else:
+            print(
+                f"Unrecognised action '{answer}' — "
+                f"keeping '{summary.recommended_action}'."
+            )
+
+    path = save_summary(summary)
+    print(f"Saved to {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jd-ai-search-agent",
@@ -329,6 +428,21 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Directory for the draft .txt files (default: data/inmail_drafts).",
     )
+
+    qualify = sub.add_parser(
+        "qualify",
+        help="Workflow 4 — qualify a candidate from their reply thread.",
+    )
+    qualify.add_argument(
+        "--thread",
+        metavar="PATH",
+        help="Text file with the message thread; pasted interactively if omitted.",
+    )
+    qualify.add_argument(
+        "--criteria",
+        metavar="PATH",
+        help="Intake criteria JSON for role context; prompted if omitted.",
+    )
     return parser
 
 
@@ -344,6 +458,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_rank(args)
     if args.command == "inmail":
         return cmd_inmail(args)
+    if args.command == "qualify":
+        return cmd_qualify(args)
 
     parser.print_help()
     return 0
