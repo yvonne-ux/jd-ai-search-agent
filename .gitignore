@@ -1,0 +1,16 @@
+# Secrets — never commit
+.env
+
+# Candidate data and generated output (PDPA — never commit)
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
