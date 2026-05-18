@@ -5,6 +5,7 @@ See CLAUDE.md for project context and PLAN.md for the build plan.
 Commands:
   check    Verify the Anthropic API connection.
   intake   Workflow 1 — turn a mandate brief into LinkedIn search criteria.
+  inmail   Workflow 2 — draft personalised InMails for a list of candidates.
 """
 from __future__ import annotations
 
@@ -124,6 +125,72 @@ def cmd_intake(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inmail(args: argparse.Namespace) -> int:
+    """Workflow 2 — draft personalised InMails for a list of candidates."""
+    from pathlib import Path
+
+    from adapters.dripify_export import export_inmail
+    from adapters.linkedin_csv import load_candidates
+    from agent.claude_client import ClaudeClient, ClaudeError
+    from workflows.inmail import RoleContext, draft_all
+
+    csv_path = Path(args.candidates)
+    if not csv_path.exists():
+        print(f"ERROR: candidate CSV not found: {csv_path}")
+        return 1
+    candidates = load_candidates(csv_path)
+    if not candidates:
+        print("ERROR: no candidates found in the CSV.")
+        return 1
+
+    if args.criteria:
+        try:
+            role = RoleContext.from_intake_file(args.criteria)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: could not read criteria file: {exc}")
+            return 1
+    else:
+        print("Enter the role details:")
+        role = RoleContext(
+            role_title=input("  Role title: ").strip(),
+            seniority=input("  Seniority: ").strip(),
+            role_location=input("  Location: ").strip(),
+        )
+
+    if not role.role_title:
+        print("ERROR: a role title is required.")
+        return 1
+
+    role.selling_point = (
+        args.selling_point
+        or input("One key selling point for outreach: ").strip()
+    )
+
+    try:
+        client = ClaudeClient()
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    print(f"\nDrafting InMails for {len(candidates)} candidate(s)...\n")
+    try:
+        results = draft_all(candidates, role, client)
+    except ClaudeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    for candidate, draft, warnings in results:
+        path = export_inmail(candidate.name, draft, out_dir)
+        print(f"  {candidate.name or 'Unknown'} -> {path}")
+        for warning in warnings:
+            print(f"    WARNING: {warning}")
+
+    print(f"\n{len(results)} draft(s) written. Review and edit each before sending.")
+    print("Reminder: cap LinkedIn outreach at 50 InMails/day via the WangXQ account.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jd-ai-search-agent",
@@ -142,6 +209,32 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Read the mandate brief from a JSON file instead of prompting.",
     )
+
+    inmail = sub.add_parser(
+        "inmail",
+        help="Workflow 2 — draft personalised InMails for a list of candidates.",
+    )
+    inmail.add_argument(
+        "--candidates",
+        metavar="PATH",
+        required=True,
+        help="LinkedIn RPS CSV export of candidates to draft InMails for.",
+    )
+    inmail.add_argument(
+        "--criteria",
+        metavar="PATH",
+        help="Intake criteria JSON for the role; if omitted, role is prompted.",
+    )
+    inmail.add_argument(
+        "--selling-point",
+        metavar="TEXT",
+        help="One key selling point for the outreach; prompted if omitted.",
+    )
+    inmail.add_argument(
+        "--out-dir",
+        metavar="PATH",
+        help="Directory for the draft .txt files (default: data/inmail_drafts).",
+    )
     return parser
 
 
@@ -153,6 +246,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_check()
     if args.command == "intake":
         return cmd_intake(args)
+    if args.command == "inmail":
+        return cmd_inmail(args)
 
     parser.print_help()
     return 0

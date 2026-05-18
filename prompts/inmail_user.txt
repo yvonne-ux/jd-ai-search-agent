@@ -1,0 +1,16 @@
+Candidate profile data:
+  Name: {{candidate_name}}
+  Current title: {{current_title}}
+  Current company: {{current_company}}
+  Years in role: {{years_in_role}}
+  Previous company: {{prev_company}}
+  Location: {{location}}
+  Key skills listed: {{skills}}
+
+Role we are recruiting for:
+  Title: {{role_title}}
+  Seniority: {{seniority}}
+  Location: {{role_location}}
+  One key selling point: {{selling_point}}
+
+Draft the InMail.
