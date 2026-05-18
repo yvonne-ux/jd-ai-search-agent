@@ -10,6 +10,7 @@ Commands:
   qualify  Workflow 4 — qualify a candidate from their reply thread.
   longlist Workflow 5 — compile qualified candidates into a ranked longlist.
   run      Guided end-to-end run of all 5 workflows for one mandate.
+  costs    Summarise Claude API token usage across all logged runs.
 """
 from __future__ import annotations
 
@@ -129,11 +130,29 @@ def cmd_intake(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_candidates(path: str):
+    """Load candidates from a CSV. Returns (candidates, error_message)."""
+    import csv
+    from pathlib import Path
+
+    from adapters.linkedin_csv import load_candidates
+
+    csv_path = Path(path)
+    if not csv_path.exists():
+        return None, f"candidate CSV not found: {csv_path}"
+    try:
+        candidates = load_candidates(csv_path)
+    except (OSError, ValueError, csv.Error) as exc:
+        return None, f"could not read candidate CSV: {exc}"
+    if not candidates:
+        return None, "no candidates found in the CSV."
+    return candidates, None
+
+
 def cmd_rank(args: argparse.Namespace) -> int:
     """Workflow 2 — score and rank candidates against the role criteria."""
     from pathlib import Path
 
-    from adapters.linkedin_csv import load_candidates
     from agent.claude_client import ClaudeClient, ClaudeError
     from workflows.rank import (
         format_rankings,
@@ -142,13 +161,9 @@ def cmd_rank(args: argparse.Namespace) -> int:
         save_rankings,
     )
 
-    csv_path = Path(args.candidates)
-    if not csv_path.exists():
-        print(f"ERROR: candidate CSV not found: {csv_path}")
-        return 1
-    candidates = load_candidates(csv_path)
-    if not candidates:
-        print("ERROR: no candidates found in the CSV.")
+    candidates, error = _load_candidates(args.candidates)
+    if error:
+        print(f"ERROR: {error}")
         return 1
 
     criteria_path = Path(args.criteria)
@@ -195,21 +210,16 @@ def cmd_rank(args: argparse.Namespace) -> int:
 
 
 def cmd_inmail(args: argparse.Namespace) -> int:
-    """Workflow 2 — draft personalised InMails for a list of candidates."""
+    """Workflow 3 — draft personalised InMails for a list of candidates."""
     from pathlib import Path
 
     from adapters.dripify_export import export_inmail
-    from adapters.linkedin_csv import load_candidates
     from agent.claude_client import ClaudeClient, ClaudeError
     from workflows.inmail import RoleContext, draft_all
 
-    csv_path = Path(args.candidates)
-    if not csv_path.exists():
-        print(f"ERROR: candidate CSV not found: {csv_path}")
-        return 1
-    candidates = load_candidates(csv_path)
-    if not candidates:
-        print("ERROR: no candidates found in the CSV.")
+    candidates, error = _load_candidates(args.candidates)
+    if error:
+        print(f"ERROR: {error}")
         return 1
 
     if args.criteria:
@@ -428,7 +438,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     from adapters.dripify_export import export_inmail
-    from adapters.linkedin_csv import load_candidates
     from agent.claude_client import ClaudeClient, ClaudeError
     from workflows.intake import (
         format_criteria,
@@ -485,13 +494,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"\nStopped after intake. Resume later with: rank --criteria "
                   f"<the saved criteria> --candidates <your CSV>")
             return 0
-        csv_path = Path(csv_in)
-        if not csv_path.exists():
-            print(f"ERROR: candidate CSV not found: {csv_path}")
-            return 1
-        candidates = load_candidates(csv_path)
-        if not candidates:
-            print("ERROR: no candidates found in the CSV.")
+        candidates, error = _load_candidates(csv_in)
+        if error:
+            print(f"ERROR: {error}")
             return 1
 
         # --- Stage 2: Candidate ranking -------------------------------------
@@ -593,6 +598,54 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     print(f"\nMandate complete. All artifacts in: {mandate.folder}")
+    return 0
+
+
+def cmd_costs(args: argparse.Namespace) -> int:
+    """Summarise Claude API token usage across all logged runs."""
+    from agent.logger import summarize_runs
+
+    summary = summarize_runs()
+    if summary["run_count"] == 0:
+        print("No run logs found yet. Run a workflow first.")
+        return 0
+
+    print(f"Workflow runs logged: {summary['run_count']}\n")
+    row = "{:<12} {:>5} {:>11} {:>11} {:>11} {:>11}"
+    header = row.format(
+        "Workflow", "Runs", "Input", "Output", "CacheRead", "CacheWrite"
+    )
+    print(header)
+    print("-" * len(header))
+    for workflow, totals in sorted(summary["by_workflow"].items()):
+        print(row.format(
+            workflow[:12],
+            totals["runs"],
+            totals["input_tokens"],
+            totals["output_tokens"],
+            totals["cache_read_input_tokens"],
+            totals["cache_creation_input_tokens"],
+        ))
+    total = summary["total"]
+    print("-" * len(header))
+    print(row.format(
+        "TOTAL",
+        total["runs"],
+        total["input_tokens"],
+        total["output_tokens"],
+        total["cache_read_input_tokens"],
+        total["cache_creation_input_tokens"],
+    ))
+
+    cached = total["cache_read_input_tokens"]
+    cacheable = cached + total["input_tokens"]
+    if cacheable:
+        print(
+            f"\nPrompt-cache read rate: {100 * cached / cacheable:.1f}% "
+            f"of cacheable input tokens."
+        )
+    print("\nToken counts above drive API cost — see console.anthropic.com "
+          "for current per-model pricing.")
     return 0
 
 
@@ -711,6 +764,11 @@ def build_parser() -> argparse.ArgumentParser:
         "run",
         help="Guided end-to-end run of all 5 workflows for one mandate.",
     )
+
+    sub.add_parser(
+        "costs",
+        help="Summarise Claude API token usage across all logged runs.",
+    )
     return parser
 
 
@@ -732,6 +790,8 @@ def main(argv: "list[str] | None" = None) -> int:
         return cmd_longlist(args)
     if args.command == "run":
         return cmd_run(args)
+    if args.command == "costs":
+        return cmd_costs(args)
 
     parser.print_help()
     return 0

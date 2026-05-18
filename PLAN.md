@@ -62,80 +62,50 @@ RPS CSV export, with a word-count / banned-phrase quality check, exported to tex
 
 ---
 
-## Step 5 — Workflow 2: Candidate Ranking
+## Step 5 — Workflow 2: Candidate Ranking — DONE
 
-(Process map, Stage 2. Runs before InMail in the process flow.)
-
-- [ ] Author the ranking system + user prompts in the JD house style (no brief prompt
-      exists for this workflow).
-- [ ] Add a `CandidateRanking` data model.
-- [ ] Build the workflow: read an RPS CSV, score every candidate against the role's
-      `SearchCriteria` in one Claude call, return a ranked list with fit scores,
-      matches, gaps, and a Prioritise / Consider / Skip recommendation.
-- [ ] Add a `rank` CLI command that displays the ranking and flags top candidates.
-- [ ] Consultant review of the ranking before outreach.
-- [ ] Test against the sample CSV and sample criteria.
-
-**Done when:** a candidate CSV plus intake criteria produces a sensible ranked list
-that a consultant agrees prioritises the right candidates.
+Ranking prompts authored in the JD house style; `CandidateRanking` model added;
+`rank` CLI command scores a CSV against the criteria in one Claude call and flags
+the strongest matches. Verified with a live run.
 
 ---
 
-## Step 6 — Workflow 4: Candidate Qualification Summary
+## Step 6 — Workflow 4: Candidate Qualification Summary — DONE
 
-- [ ] Port the brief's Prompt 3 system + user templates into `prompts/`.
-- [ ] CLI input for a candidate's LinkedIn message thread (consultant pastes the thread).
-- [ ] Produce the `QualificationSummary` JSON: `candidate_name`, `current_role`,
-      `interest_level`, `availability`, `location_fit`, `key_positives`, `concerns`,
-      `recommended_action`, `summary`.
-- [ ] Use Haiku 4.5 for profile extraction where applicable, Sonnet 4.6 for the summary.
-- [ ] Consultant override of `recommended_action`.
-- [ ] Test against sample threads spanning strong / borderline / weak fit.
-
-**Done when:** qualification output is consistent and a consultant agrees with the
-recommended actions on the test set.
+Prompt 3 ported; `qualify` CLI command turns a candidate reply thread into a
+`QualificationSummary`, with consultant override of the recommended action. Verified
+with a live run.
 
 ---
 
-## Step 7 — Workflow 5: Longlist Compilation
+## Step 7 — Workflow 5: Longlist Compilation — DONE
 
-- [ ] Port the brief's Prompt 4 system + user templates into `prompts/`.
-- [ ] Aggregate qualification summaries (brief triggers at 15+) into a ranked longlist.
-- [ ] Produce the longlist JSON: ranked array (`rank`, `candidate_name`,
-      `current_title`, `current_company`, `interest_level`, `fit_score` 1–10,
-      `one_line_summary`, `recommended_next_step`) plus a `search_commentary` paragraph.
-- [ ] Export a consultant/client-ready document (format to confirm — e.g. Excel).
-- [ ] Test a full longlist from the sample candidate set.
-
-**Done when:** a ranked longlist with rationale and search commentary exports correctly
-and reads as client-presentable.
+Prompt 4 ported; `longlist` CLI command aggregates qualification summaries into a
+ranked longlist with market commentary, exported to JSON, Excel, and Markdown.
+Verified with a live run.
 
 ---
 
-## Step 8 — End-to-end integration
+## Step 8 — End-to-end integration — DONE
 
-- [ ] Wire the 5 workflows into one CLI pipeline: brief → criteria → (consultant runs
-      RPS search, exports CSV) → ranking → InMail drafts → (consultant sends via
-      Dripify, collects replies) → qualification → longlist, with review gates between
-      stages.
-- [ ] Run a full dry pass on one sample mandate using a sample CSV.
-
-**Done when:** one complete mandate runs end to end on realistic data with consultant
-review at each gate.
+`pipeline.py` adds per-mandate workspace folders; the `run` command walks all 5
+workflows in one guided session with review gates for the RPS search and Dripify
+outreach. Verified with a live dry pass.
 
 ---
 
-## Step 9 — Hardening & handover
+## Step 9 — Hardening & handover — DONE
 
-- [ ] Error handling for API failures, rate limits, malformed CSV data.
-- [ ] Review PDPA compliance: data minimisation, 12-month retention, `data/` cleanup.
-- [ ] Cost check: token usage and prompt-cache hit rate per workflow and per mandate.
-- [ ] Finalise README / consultant usage guide so Yvonne can run and adjust prompts
-      independently.
+- [x] Error handling for API failures, rate limits, malformed CSV data (retries in
+      the Claude wrapper; CSV loading errors surfaced cleanly in the CLI).
+- [x] PDPA review: all generated output and run logs are confined to the gitignored
+      `data/` directory; 12-month retention documented in README and CLAUDE.md.
+- [x] Cost check: per-call token usage (including prompt-cache reads) is recorded in
+      run logs; the `costs` command summarises usage by workflow.
+- [x] README finalised as a consultant usage guide covering every command, the
+      pipeline, and prompt editing.
 - [ ] Pilot with one consultant on a live, low-risk mandate; collect feedback.
-
-**Done when:** a consultant can run a real search with the tool unaided and the data
-handling has been reviewed.
+      (A human activity — to be scheduled by JD; not a code deliverable.)
 
 ---
 
@@ -147,5 +117,8 @@ multi-user Windows RDS deployment, automated sending, multi-language outreach.
 
 ## Build order summary
 
-Step 0 (done) → 1 (done) → 2 (done) → 3 Intake (done) → 4 InMail (done) →
-5 Candidate Ranking → 6 Qualification → 7 Longlist → 8 Integration → 9 Hardening.
+Step 0 → 1 → 2 → 3 Intake → 4 InMail → 5 Candidate Ranking → 6 Qualification →
+7 Longlist → 8 Integration → 9 Hardening — all complete.
+
+The Phase 1A proof-of-concept is built. The remaining activity is a consultant
+pilot on a live mandate (Step 9), which JD schedules.

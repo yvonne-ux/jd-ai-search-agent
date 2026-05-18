@@ -94,6 +94,7 @@ def qualify_candidate(
         system,
         user,
         raw,
+        usage=client.last_usage,
     )
     return QualificationSummary.from_dict(raw)
 

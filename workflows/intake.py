@@ -82,7 +82,8 @@ def generate_search_criteria(
         model=MODEL_SONNET,
         max_tokens=max_tokens,
     )
-    log_run(WORKFLOW, MODEL_SONNET, asdict(brief), system, user, raw)
+    log_run(WORKFLOW, MODEL_SONNET, asdict(brief), system, user, raw,
+            usage=client.last_usage)
     return SearchCriteria.from_dict(raw)
 
 

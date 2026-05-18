@@ -29,8 +29,24 @@ _RETRYABLE_STATUS = {429, 500, 502, 503, 529}
 _PLACEHOLDER_KEY = "sk-ant-xxxxxxxx"
 
 
+_USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
 class ClaudeError(RuntimeError):
     """Raised when a Claude API call cannot be completed."""
+
+
+def usage_dict(usage: Any) -> Dict[str, int]:
+    """Extract token counts from a response usage object into a plain dict."""
+    return {
+        key: int(getattr(usage, key, 0) or 0)
+        for key in _USAGE_KEYS
+    }
 
 
 class ClaudeClient:
@@ -45,6 +61,8 @@ class ClaudeClient:
             )
         self._client = anthropic.Anthropic(api_key=key)
         self.max_retries = max(1, max_retries)
+        # Token usage of the most recent completed call.
+        self.last_usage: Dict[str, int] = {}
 
     def complete(
         self,
@@ -73,6 +91,7 @@ class ClaudeClient:
                     system=system_blocks,
                     messages=[{"role": "user", "content": user}],
                 )
+                self.last_usage = usage_dict(resp.usage)
                 return "".join(
                     b.text for b in resp.content if b.type == "text"
                 ).strip()

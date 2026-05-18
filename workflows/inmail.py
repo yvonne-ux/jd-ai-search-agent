@@ -85,6 +85,7 @@ def draft_inmail(
         system,
         user,
         draft,
+        usage=client.last_usage,
     )
     return draft
 

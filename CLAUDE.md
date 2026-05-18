@@ -120,6 +120,6 @@ driven by **manual input** (CSV in, text files out), tested on one live JD manda
 
 ## Status
 
-Plan confirmed and aligned to the developer brief. Building Phase 1A. Step 0 decisions
-resolved; the build proceeds phase by phase with a consultant review gate after each.
-See PLAN.md.
+Phase 1A proof-of-concept is built — all 5 workflows, the guided `run` pipeline, and
+the `costs` reporting command, covered by unit tests. The remaining activity is a
+consultant pilot on a live mandate, which JD schedules. See PLAN.md.

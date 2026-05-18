@@ -105,6 +105,7 @@ def compile_longlist(
         system,
         user,
         raw,
+        usage=client.last_usage,
     )
 
     longlist = Longlist.from_dict(raw)

@@ -74,6 +74,7 @@ def rank_candidates(
         system,
         user,
         raw,
+        usage=client.last_usage,
     )
 
     rows = raw.get("rankings", []) if isinstance(raw, dict) else raw
