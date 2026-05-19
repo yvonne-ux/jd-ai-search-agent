@@ -38,6 +38,7 @@ def _candidate_payload(candidate: Candidate) -> dict:
         "prev_company": candidate.prev_company,
         "location": candidate.location,
         "skills": candidate.skills,
+        "attributes": candidate.attributes,
     }
 
 
@@ -46,9 +47,13 @@ def rank_candidates(
     criteria: SearchCriteria,
     client: ClaudeClient,
     *,
-    max_tokens: int = 4096,
+    max_tokens: int = 0,
 ) -> List[CandidateRanking]:
     """Score every candidate against the criteria and return a ranked list."""
+    # The model emits one JSON object per candidate (~700 tokens each). Size the
+    # output budget to the batch so large CSVs are not truncated mid-response.
+    if max_tokens <= 0:
+        max_tokens = max(4096, 1024 + len(candidates) * 700)
     system = load_prompt(SYSTEM_FILE)
     user = fill_template(
         load_prompt(USER_FILE),

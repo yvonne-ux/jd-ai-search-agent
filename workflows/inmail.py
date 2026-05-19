@@ -66,6 +66,10 @@ def draft_inmail(
         prev_company=candidate.prev_company or _NOT_STATED,
         location=candidate.location or _NOT_STATED,
         skills=", ".join(candidate.skills) or _NOT_STATED,
+        attributes=(
+            "; ".join(f"{k}: {v}" for k, v in candidate.attributes.items())
+            or _NOT_STATED
+        ),
         role_title=role.role_title or _NOT_STATED,
         seniority=role.seniority or _NOT_STATED,
         role_location=role.role_location or _NOT_STATED,

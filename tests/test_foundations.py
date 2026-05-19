@@ -74,6 +74,32 @@ class CsvAdapterTests(unittest.TestCase):
     def test_raw_preserves_columns(self):
         self.assertIn("Tenure", self.candidates[0].raw)
 
+    def test_mapped_columns_excluded_from_attributes(self):
+        # Every column in the sample CSV maps to a core field, so there are
+        # no leftover attributes.
+        self.assertEqual(self.candidates[0].attributes, {})
+
+    def test_unmapped_columns_captured_as_attributes(self):
+        import tempfile
+        from pathlib import Path
+
+        csv_text = (
+            "First Name,Last Name,Title,Company,"
+            "Siemens NX (yrs),Aerospace Exp (yrs),Bachelor Degree\n"
+            "Ranga,Rajan,Process Engineer,ST Engineering,3,3,Yes\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "extra.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            candidate = load_candidates(path)[0]
+
+        self.assertEqual(candidate.attributes["Siemens NX (yrs)"], "3")
+        self.assertEqual(candidate.attributes["Aerospace Exp (yrs)"], "3")
+        self.assertEqual(candidate.attributes["Bachelor Degree"], "Yes")
+        # Core columns and the name parts are not duplicated into attributes.
+        self.assertNotIn("Title", candidate.attributes)
+        self.assertNotIn("First Name", candidate.attributes)
+
 
 class ModelTests(unittest.TestCase):
     def test_search_criteria_round_trip(self):

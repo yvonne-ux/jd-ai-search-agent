@@ -61,6 +61,18 @@ def load_candidates(path) -> List[Candidate]:
         first_header = norm_to_actual.get("first name")
         last_header = norm_to_actual.get("last name")
 
+        # Headers consumed by a core Candidate field (or used to build the
+        # name). Every other column is preserved as a named attribute so
+        # qualification/experience columns reach the workflows.
+        core_headers = set(resolved.values())
+        for h in (first_header, last_header):
+            if h:
+                core_headers.add(h)
+        extra_headers = [
+            h for h in reader.fieldnames
+            if h is not None and h not in core_headers
+        ]
+
         for row in reader:
             def value_of(field_name: str) -> str:
                 header = resolved.get(field_name)
@@ -74,6 +86,12 @@ def load_candidates(path) -> List[Candidate]:
                 ]
                 name = " ".join(p for p in parts if p)
 
+            attributes = {}
+            for header in extra_headers:
+                cell = (row.get(header) or "").strip()
+                if cell:
+                    attributes[header.strip()] = cell
+
             candidates.append(
                 Candidate(
                     name=name,
@@ -84,6 +102,7 @@ def load_candidates(path) -> List[Candidate]:
                     location=value_of("location"),
                     skills=_split_skills(value_of("skills")),
                     profile_url=value_of("profile_url"),
+                    attributes=attributes,
                     raw={k: (v or "") for k, v in row.items() if k is not None},
                 )
             )

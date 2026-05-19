@@ -67,6 +67,9 @@ class Candidate:
     location: str = ""
     skills: List[str] = field(default_factory=list)
     profile_url: str = ""
+    # Extra CSV columns not mapped to a core field — e.g. qualification or
+    # experience columns like "Siemens NX (yrs)" — keyed by their header name.
+    attributes: Dict[str, str] = field(default_factory=dict)
     # Any extra columns from the CSV, preserved verbatim.
     raw: Dict[str, str] = field(default_factory=dict)
 

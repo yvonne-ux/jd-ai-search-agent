@@ -6,6 +6,7 @@ Candidate profile data:
   Previous company: {{prev_company}}
   Location: {{location}}
   Key skills listed: {{skills}}
+  Additional profile details: {{attributes}}
 
 Role we are recruiting for:
   Title: {{role_title}}
