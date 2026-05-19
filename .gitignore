@@ -9,6 +9,9 @@
 data/*
 !data/.gitkeep
 
+# Live client mandate briefs used for testing — keep local (PDPA)
+tests/KH1284_*
+
 # Python
 __pycache__/
 *.py[cod]
