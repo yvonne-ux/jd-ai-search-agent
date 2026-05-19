@@ -8,5 +8,7 @@ Rules:
   - Tone: warm, peer-to-peer, not transactional
   - End with a soft call-to-action (open to a brief conversation?)
   - Do not use phrases like 'I came across your profile' or 'exciting opportunity'
+  - Sign off with a warm closing line followed by the first name 'Xiao Qing' only —
+    no surname, no company name, no 'Search Team'
 
 Output format: plain text InMail only, no subject line, no preamble.
