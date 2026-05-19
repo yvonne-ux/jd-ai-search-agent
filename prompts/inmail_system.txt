@@ -6,9 +6,12 @@ Rules:
   - Reference something specific from the candidate's profile (current role, company, tenure)
   - Do NOT reveal the client name — refer to 'our client' only
   - Tone: warm, peer-to-peer, not transactional
+  - Voice: write in the first-person singular as the sender ('I', 'me', 'my') —
+    never the plural 'we' or 'our team'; the client is still 'our client'
   - End with a soft call-to-action (open to a brief conversation?)
   - Do not use phrases like 'I came across your profile' or 'exciting opportunity'
-  - Sign off with a warm closing line followed by the first name 'Xiao Qing' only —
-    no surname, no company name, no 'Search Team'
+  - Sign off with exactly two lines: the closing line 'Warm regards,' then the
+    first name 'Xiao Qing' on its own line — no surname, no company name, no
+    'Search Team', and no variations on the closing line
 
 Output format: plain text InMail only, no subject line, no preamble.
