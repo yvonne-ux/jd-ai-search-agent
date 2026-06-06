@@ -1,12 +1,53 @@
-New mandate brief:
-  Client: {{client_name}}
-  Role: {{role_title}}
-  Industry: {{industry}}
-  Location: {{location}}
-  Seniority: {{seniority}}
-  Key responsibilities: {{responsibilities}}
-  Must-have background: {{must_have}}
-  Nice-to-have: {{nice_to_have}}
-  Exclusions: {{exclusions}}
+New mandate brief — generate search criteria grounded in *this specific role*, not
+generic defaults.
 
-Generate the search criteria JSON.
+================ BRIEF (consultant-curated summary) ================
+Client / Company:    {{client_name}}
+Role title:          {{role_title}}
+Level / Seniority:   {{seniority}}
+Industry:            {{industry}}
+Location:            {{location}}
+
+Role summary:
+{{responsibilities}}
+
+Must-have skills:
+{{must_have}}
+
+Nice-to-have skills:
+{{nice_to_have}}
+
+Avoid flags:
+{{exclusions}}
+
+================ ORIGINAL JD SOURCE (authoritative) ================
+The brief above was extracted from the JD text below. Weight this text as the
+source of truth — use it to identify the real sector, peer companies, role
+variants, and exclusions. If anything in the brief disagrees with the JD, trust
+the JD. When the JD references named brands, hotels, restaurants, banks, or
+competitors, include them (or their direct peers) in target_companies.
+
+<<<JD_BEGIN
+{{jd_source}}
+JD_END>>>
+
+================ INSTRUCTIONS ================
+1. Read the JD source first, end-to-end.
+2. Identify the *sector* the role lives in (e.g. Hospitality / Hotels & Resorts,
+   Fine Dining / F&B, Banking / FSI, Healthcare). State this internally before
+   writing JSON.
+3. Pick target_companies that are peer organisations IN THAT SECTOR and within
+   the role's region — not consulting firms, not generic enterprises, not the
+   client itself.
+4. Derive job_titles as the role title plus 4–8 close variants and adjacent
+   titles peer firms use for the same job.
+5. industries: 2–5 specific LinkedIn-searchable sector tags.
+6. locations: anchor on the JD location plus 1–2 adjacent talent markets.
+7. exclusions: combine the brief's Avoid flags with sector-aware adjacents drawn
+   from the JD.
+8. boolean_string: (titles) AND (companies OR industries) AND location NOT
+   exclusions. Under ~500 characters.
+9. search_rationale: 2–3 sentences naming the sector you anchored on, why those
+   target_companies are the peer set, and any judgement calls.
+
+Return the JSON object only.

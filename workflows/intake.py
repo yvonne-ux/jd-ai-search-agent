@@ -24,16 +24,18 @@ USER_FILE = "intake_user.txt"
 _CRITERIA_DIR = Path(__file__).resolve().parent.parent / "data" / "search_criteria"
 
 # (field name, human-readable label) — drives interactive collection and display.
+# Order is preserved for CLI prompts; the web UI lays the same fields out
+# manually to match the step1 design.
 BRIEF_FIELDS: List[Tuple[str, str]] = [
-    ("client_name", "Client name"),
+    ("client_name", "Client / Company"),
     ("role_title", "Role title"),
     ("industry", "Industry"),
     ("location", "Location"),
-    ("seniority", "Seniority (e.g. VP, Director, C-Suite)"),
-    ("responsibilities", "Key responsibilities"),
-    ("must_have", "Must-have background"),
-    ("nice_to_have", "Nice-to-have"),
-    ("exclusions", "Exclusions (titles/companies/backgrounds to filter out)"),
+    ("seniority", "Level / Seniority"),
+    ("responsibilities", "Role summary"),
+    ("must_have", "Must-have skills"),
+    ("nice_to_have", "Nice-to-have skills"),
+    ("exclusions", "Avoid flags"),
 ]
 
 
@@ -70,11 +72,23 @@ def generate_search_criteria(
     brief: MandateBrief,
     client: ClaudeClient,
     *,
+    jd_text: Optional[str] = None,
     max_tokens: int = 2048,
 ) -> SearchCriteria:
-    """Run Prompt 1 against the brief and return structured SearchCriteria."""
+    """Run Prompt 1 against the brief and return structured SearchCriteria.
+
+    When ``jd_text`` is supplied (the full text extracted from an uploaded JD),
+    it is passed to Claude as the authoritative source for sector grounding,
+    so target_companies / industries / job_titles reflect the real role rather
+    than generic defaults.
+    """
     system = load_prompt(SYSTEM_FILE)
-    user = fill_template(load_prompt(USER_FILE), **brief.as_prompt_values())
+    values = brief.as_prompt_values()
+    values["jd_source"] = (
+        (jd_text or "").strip()
+        or "(no JD file uploaded — use the brief fields above)"
+    )
+    user = fill_template(load_prompt(USER_FILE), **values)
 
     raw = client.complete_json(
         system=system,
