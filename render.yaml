@@ -1,0 +1,22 @@
+# Render Blueprint — deploys the JD AI Search Agent web app.
+# In the Render dashboard: New + → Blueprint → pick this repo. Render reads this
+# file, then prompts for the three secret values below (sync: false).
+services:
+  - type: web
+    name: jd-ai-search-agent
+    runtime: python
+    plan: free
+    region: singapore            # keep candidate data in-region (PDPA)
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn 'web.app:create_app()' --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ANTHROPIC_API_KEY   # your Anthropic API key
+        sync: false
+      - key: APP_USERNAME        # login username your colleague will use
+        sync: false
+      - key: APP_PASSWORD        # login password your colleague will use
+        sync: false
+      - key: FLASK_SECRET_KEY    # auto-generated; signs the session cookie
+        generateValue: true

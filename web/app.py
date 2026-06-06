@@ -15,13 +15,21 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-# Ensure the parent project is importable when this file is run directly.
+# Ensure the parent project and this folder are importable whether the app is
+# run directly (``python web/app.py``) or imported by a WSGI server such as
+# gunicorn (``web.app:create_app``). The bare ``import jd_extract`` / ``import
+# store`` below rely on this folder being on sys.path.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+_WEB_DIR = Path(__file__).resolve().parent
+for _p in (_PROJECT_ROOT, _WEB_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+import secrets  # noqa: E402
 
 from flask import (  # noqa: E402  — sys.path setup must come first
     Flask,
+    Response,
     flash,
     redirect,
     render_template,
@@ -78,6 +86,31 @@ def create_app() -> Flask:
     app.secret_key = os.environ.get(
         "FLASK_SECRET_KEY", "jd-search-agent-local-dev-key"
     )
+
+    # ---------- optional password gate ----------
+    # When APP_PASSWORD is set (i.e. on a shared/hosted deployment) the whole
+    # app sits behind HTTP Basic Auth. Left unset locally, so `python web/app.py`
+    # stays open for development. Username defaults to "jd" if not specified.
+    _auth_user = os.environ.get("APP_USERNAME", "jd")
+    _auth_pass = os.environ.get("APP_PASSWORD")
+
+    @app.before_request
+    def _require_password():
+        if not _auth_pass:
+            return None  # no password configured → open (local dev)
+        auth = request.authorization
+        if (
+            auth
+            and auth.type == "basic"
+            and auth.username == _auth_user
+            and secrets.compare_digest(auth.password or "", _auth_pass)
+        ):
+            return None
+        return Response(
+            "Authentication required.",
+            401,
+            {"WWW-Authenticate": 'Basic realm="JD AI Search Agent"'},
+        )
 
     # ---------- shared helpers ----------
 
