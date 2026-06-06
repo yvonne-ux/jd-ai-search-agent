@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Candidate Ranking · JD AI Search Agent{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Candidate ranking</h1>
+  <p class="muted">Upload a LinkedIn RPS CSV export. Every candidate is scored
+     against the criteria below, so you can prioritise outreach.</p>
+
+  <details class="criteria-recap">
+    <summary>Ranking against these criteria</summary>
+    <div class="recap-grid">
+      <div><span class="recap-label">Job titles</span>{{ criteria.job_titles | join(', ') or '—' }}</div>
+      <div><span class="recap-label">Seniority</span>{{ criteria.seniority_levels | join(', ') or '—' }}</div>
+      <div><span class="recap-label">Target companies</span>{{ criteria.target_companies | join(', ') or '—' }}</div>
+      <div><span class="recap-label">Industries</span>{{ criteria.industries | join(', ') or '—' }}</div>
+      <div><span class="recap-label">Locations</span>{{ criteria.locations | join(', ') or '—' }}</div>
+      <div><span class="recap-label">Exclusions</span>{{ criteria.exclusions | join(', ') or '—' }}</div>
+    </div>
+    <p class="muted"><a href="{{ url_for('criteria') }}">Edit criteria</a></p>
+  </details>
+
+  <div class="boolean-step">
+    <ol class="boolean-instructions">
+      <li>Copy the Boolean string → paste into Claude in Chrome on LinkedIn
+          Recruiter → export results as CSV.</li>
+      <li>Upload the CSV below to rank candidates.</li>
+    </ol>
+    {% if criteria.boolean_string %}
+      <div class="boolean-box">
+        <textarea id="boolean-string" class="boolean-string mono" rows="2" readonly>{{ criteria.boolean_string }}</textarea>
+        <button type="button" class="primary copy-boolean"
+                data-copy data-copy-target="#boolean-string" data-copied-label="Copied!">
+          Copy Boolean string
+        </button>
+      </div>
+    {% else %}
+      <p class="muted">No Boolean string yet —
+         <a href="{{ url_for('criteria') }}">generate or add one in the criteria step</a>.</p>
+    {% endif %}
+  </div>
+
+  <form action="{{ url_for('rank_run') }}" method="post" enctype="multipart/form-data"
+        class="upload-form" data-spinner data-spinner-label="Scoring candidates…">
+    <input type="file" name="csv" accept=".csv" required />
+    <button type="submit" class="primary">
+      {% if has_csv %}Re-rank from new CSV{% else %}Upload &amp; rank{% endif %}
+    </button>
+  </form>
+</section>
+
+{% if rankings %}
+<section class="card">
+  <form action="{{ url_for('rank_select') }}" method="post">
+    <div class="rank-toolbar">
+      <h2>{{ rankings | length }} candidates ranked</h2>
+      <button type="submit" class="primary">Draft InMails for selected →</button>
+    </div>
+
+    <table class="rank-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>#</th>
+          <th>Candidate</th>
+          <th>Fit</th>
+          <th>Recommendation</th>
+          <th>Matches &amp; gaps</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rankings %}
+          {% set rec = (r.recommendation or '') | lower %}
+          <tr class="{% if 'prioritise' in rec or 'prioritize' in rec %}row-prioritise{% endif %}">
+            <td>
+              <input type="checkbox" name="selected" value="{{ r.candidate_name }}"
+                     {% if r.candidate_name in selected %}checked{% endif %} />
+            </td>
+            <td class="rank-num">{{ r.rank }}</td>
+            <td>
+              <div class="cand-name">{{ r.candidate_name or 'Unknown' }}</div>
+              <div class="cand-sub">{{ r.current_title }}{% if r.current_company %} · {{ r.current_company }}{% endif %}</div>
+            </td>
+            <td class="fit-cell">
+              <div class="fit-score">{{ r.fit_score }}<span>/10</span></div>
+              <div class="fit-bar"><span style="width: {{ r.fit_score * 10 }}%"></span></div>
+            </td>
+            <td>
+              <span class="rec-pill rec-{{ rec | replace(' ', '-') or 'na' }}">{{ r.recommendation or 'n/a' }}</span>
+            </td>
+            <td class="matchgap">
+              {% if r.matches %}<div class="matches">✓ {{ r.matches | join('; ') }}</div>{% endif %}
+              {% if r.gaps %}<div class="gaps">✗ {{ r.gaps | join('; ') }}</div>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

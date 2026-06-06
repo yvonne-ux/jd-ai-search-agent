@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}InMail Drafts · JD AI Search Agent{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>InMail drafts</h1>
+  {% if not drafts %}
+    <p class="muted">No candidates selected yet. Shortlist candidates on the
+       <a href="{{ url_for('rank') }}">Ranking screen</a> and click
+       “Draft InMails for selected”.</p>
+  {% else %}
+    <p class="muted">Drafting for {{ drafts | length }} shortlisted
+       candidate{{ '' if drafts | length == 1 else 's' }}. Each draft is
+       personalised, under {{ max_words }} words, and never names the client.</p>
+
+    <form action="{{ url_for('inmail_generate') }}" method="post"
+          data-spinner data-spinner-label="Drafting InMails…">
+      <div class="field">
+        <label for="selling_point">One key selling point for outreach</label>
+        <textarea id="selling_point" name="selling_point" rows="2"
+          placeholder="e.g. Greenfield platform build, direct report to the CTO.">{{ selling_point }}</textarea>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="primary">
+          {% if drafts | selectattr('text') | list %}Regenerate all drafts{% else %}Generate drafts{% endif %}
+        </button>
+      </div>
+    </form>
+
+    <p class="cap-note">⚠ LinkedIn cap: max 50 InMails/day, sent only via the
+       <strong>WangXQ</strong> researcher account — never a personal account.</p>
+  {% endif %}
+</section>
+
+{% for d in drafts %}
+<section class="card draft-card">
+  <div class="draft-head">
+    <div>
+      <h2>{{ d.candidate.name or 'Unknown' }}</h2>
+      <p class="muted">{{ d.candidate.current_title }}{% if d.candidate.current_company %} · {{ d.candidate.current_company }}{% endif %}</p>
+    </div>
+    {% if d.candidate.profile_url %}
+      <a class="ext-link" href="{{ d.candidate.profile_url }}" target="_blank" rel="noopener">LinkedIn ↗</a>
+    {% endif %}
+  </div>
+
+  {% if d.text %}
+    <form action="{{ url_for('inmail_save') }}" method="post" class="draft-form">
+      <input type="hidden" name="candidate_name" value="{{ d.candidate.name }}" />
+      <textarea name="draft" rows="9" data-wordcount data-max="{{ max_words }}">{{ d.text }}</textarea>
+      <div class="draft-foot">
+        <span class="wordcount" data-limit="{{ max_words }}"></span>
+        <div class="draft-actions">
+          <button type="button" class="secondary" data-copy>Copy</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </div>
+      {% if d.warnings %}
+        <ul class="draft-warnings">
+          {% for w in d.warnings %}<li>{{ w }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </form>
+  {% else %}
+    <p class="muted draft-empty">No draft yet — add a selling point above and
+       click Generate.</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

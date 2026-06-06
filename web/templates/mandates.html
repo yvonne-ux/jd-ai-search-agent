@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Mandates · JD AI Search Agent{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Start a new mandate</h1>
+  <p class="muted">Each mandate gets its own workspace folder under <code>data/mandates/</code>.</p>
+  <form action="{{ url_for('mandates_new') }}" method="post" class="mandate-form">
+    <label for="mandate-name">Mandate name</label>
+    <input
+      id="mandate-name"
+      name="name"
+      type="text"
+      required
+      autocomplete="off"
+      placeholder="e.g. Aerospace MRO — Manufacturing Engineer (OEM)"
+    />
+    <button type="submit" class="primary">Create mandate</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Resume an existing mandate</h2>
+  {% if mandates %}
+    <ul class="mandate-list">
+      {% for m in mandates %}
+        <li class="mandate-row">
+          <div>
+            <p class="mandate-row-name">{{ m.name }}</p>
+            <p class="mandate-row-slug muted">{{ m.folder.name }}</p>
+          </div>
+          <form action="{{ url_for('mandates_select') }}" method="post" class="inline">
+            <input type="hidden" name="slug" value="{{ m.folder.name }}" />
+            <button type="submit" class="secondary">Open</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No mandates yet — create your first one above.</p>
+  {% endif %}
+</section>
+{% endblock %}

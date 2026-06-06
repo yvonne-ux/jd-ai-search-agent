@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Step 1 — Intake · JD AI Search Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          jdnavy: "#1B2A4E",
+          jdnavydk: "#13203B",
+          jdteal: "#4FB3A9",
+          jdtealdk: "#3E938B",
+          jdcream: "#F7F4EE",
+          jdsand:  "#EDE7DA",
+        },
+        fontFamily: {
+          sans: ['Inter','ui-sans-serif','system-ui','sans-serif'],
+          serif: ['"Source Serif Pro"','Georgia','serif']
+        }
+      }
+    }
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@600;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- PDF + DOCX parsers (run in the browser) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script>
+  if (window['pdfjsLib']) {
+    window['pdfjsLib'].GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+<style>
+  body { background: #F7F4EE; }
+  .stage-pill { letter-spacing: 0.18em; font-size: 11px; }
+  .drop-zone.dragging { background-color: rgba(79,179,169,0.12); border-color: #4FB3A9; }
+  .chip-input:focus { outline: none; }
+</style>
+</head>
+<body class="font-sans text-jdnavy">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef } = React;
+
+/* ---------- Library of skill keywords used for extraction matching --------- */
+const SKILL_LIB = [
+  // languages
+  "Python","Java","Scala","Go","Golang","C#","C++","TypeScript","JavaScript","Ruby","Rust","Kotlin","Swift","PHP","R","SQL","T-SQL","PL/SQL",
+  // data + warehouses
+  "Spark","PySpark","Hadoop","Airflow","dbt","Kafka","Flink","Beam","Databricks","Snowflake","BigQuery","Redshift","Synapse","Data Warehouse","Data Lake","Lakehouse","Delta Lake",
+  // cloud
+  "AWS","GCP","Azure","EKS","ECS","EMR","Glue","Lambda","S3","Athena","Kinesis","Cloud Run","Dataflow","Dataproc",
+  // infra
+  "Terraform","Kubernetes","Docker","Helm","Ansible","Pulumi","CI/CD","GitHub Actions","GitLab CI","Jenkins",
+  // backend
+  "Node.js","Express","Django","FastAPI","Flask","Spring","Spring Boot","gRPC","GraphQL","REST",
+  // frontend
+  "React","Next.js","Vue","Angular","Svelte","Tailwind",
+  // db
+  "PostgreSQL","MySQL","MongoDB","Redis","Elasticsearch","DynamoDB","Cassandra","ClickHouse",
+  // ml
+  "PyTorch","TensorFlow","scikit-learn","HuggingFace","LangChain","LLM","RAG","NLP","Computer Vision",
+  // domains
+  "Banking","FSI","Fintech","Healthcare","Insurance","Retail","E-commerce","Logistics","Gaming","SaaS",
+  // role-y
+  "Leadership","Mentoring","Stakeholder","Architecture","System Design","Microservices","Event-driven",
+];
+
+const AVOID_LIB = [
+  "junior only","< 4 yrs","< 3 yrs","< 2 yrs","contractor-only","contract only","relocation required",
+  "must relocate","no remote","on-site only",
+];
+
+/* --------------------------- Extraction helpers --------------------------- */
+function cleanText(raw) {
+  return raw
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function extractMandateCode(text) {
+  const m =
+    text.match(/\b(KH|JD|REQ|MAN|ROL)[\s_-]?(\d{3,6})\b/i) ||
+    text.match(/\b(REF|REFERENCE)[\s:#-]+([A-Z0-9-]{4,12})\b/i);
+  if (!m) return "";
+  return m[2] ? (m[1].toUpperCase() + m[2]).replace(/\s|_|-/g, "") : m[0].toUpperCase();
+}
+
+function extractTitle(text) {
+  // Try labelled lines first
+  const labelled = text.match(/(?:job\s*title|role\s*title|position|role)\s*[:\-–]\s*([^\n]{3,80})/i);
+  if (labelled) return labelled[1].trim().replace(/\.$/, "");
+  // Else: first non-empty line that looks title-cased and not too long
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  for (const l of lines.slice(0, 8)) {
+    if (l.length > 4 && l.length < 80 && /[A-Z]/.test(l[0]) && !/[.!?]\s/.test(l)) {
+      return l.replace(/\s*[-–|]\s*confidential\b.*/i, "").trim();
+    }
+  }
+  return "";
+}
+
+function extractClient(text) {
+  const m =
+    text.match(/(?:client|company|employer|organi[sz]ation)\s*[:\-–]\s*([^\n]{2,80})/i) ||
+    text.match(/(?:about\s+(?:the\s+)?company)\s*[:\-–]?\s*\n?([^\n]{2,120})/i);
+  if (m) return m[1].trim().replace(/\.$/, "");
+  // Detect "Confidential" hint
+  if (/confidential/i.test(text.slice(0, 600))) return "Confidential";
+  return "";
+}
+
+function extractLocation(text) {
+  const m = text.match(/(?:location|based\s*in|work\s*location|site)\s*[:\-–]\s*([^\n]{2,80})/i);
+  if (m) return m[1].trim().replace(/\.$/, "");
+  const cities = ["Singapore","Kuala Lumpur","Hong Kong","Tokyo","Sydney","Melbourne","Bangkok","Jakarta","Manila","Ho Chi Minh","Hanoi","Mumbai","Bengaluru","Bangalore","Delhi","Chennai","Hyderabad","London","Dubai","Remote"];
+  for (const c of cities) {
+    if (new RegExp(`\\b${c}\\b`, "i").test(text)) {
+      const suffix =
+        /\bhybrid\b/i.test(text) ? " (hybrid)" :
+        /\bremote\b/i.test(text) ? " (remote)" :
+        /\bon[\s-]*site\b/i.test(text) ? " (on-site)" : "";
+      return c + suffix;
+    }
+  }
+  return "";
+}
+
+function extractLevel(text) {
+  const head = text.slice(0, 1500).toLowerCase();
+  if (/\b(chief|cto|cio|head of|vp\b|vice president)\b/.test(head)) return "Head / VP";
+  if (/\b(director|principal)\b/.test(head)) return "Director / Principal";
+  if (/\b(lead|staff)\b/.test(head)) return "Lead / Staff";
+  if (/\b(senior|sr\.)\b/.test(head)) return "Senior IC";
+  if (/\b(mid|intermediate)\b/.test(head)) return "Mid-level";
+  if (/\b(junior|jr\.|entry)\b/.test(head)) return "Junior";
+  return "";
+}
+
+function extractSummary(text) {
+  // Try a labelled section
+  const labels = ["role summary","job summary","summary","overview","about the role","role overview","job description","the role"];
+  for (const label of labels) {
+    const re = new RegExp(`(?:^|\\n)\\s*${label}\\s*[:\\-–]?\\s*\\n+([\\s\\S]{40,800}?)(?=\\n\\s*(?:requirements|responsibilities|qualifications|must|nice|key|what you|about you|skills)\\b|$)`, "i");
+    const m = text.match(re);
+    if (m) return m[1].trim().replace(/\s+/g, " ").slice(0, 480);
+  }
+  // Fall back: first substantive paragraph
+  const para = text.split(/\n\s*\n/).map(p => p.trim()).find(p => p.length > 80 && !/^(requirements|responsibilities|qualifications)/i.test(p));
+  return para ? para.replace(/\s+/g, " ").slice(0, 480) : "";
+}
+
+function sliceSection(text, headings) {
+  for (const h of headings) {
+    const re = new RegExp(`(?:^|\\n)\\s*${h}\\s*[:\\-–]?\\s*\\n([\\s\\S]+?)(?=\\n\\s*[A-Z][A-Za-z /&]{3,40}\\s*[:\\-–]?\\s*\\n|$)`, "i");
+    const m = text.match(re);
+    if (m) return m[1];
+  }
+  return "";
+}
+
+function matchSkills(section, lib) {
+  if (!section) return [];
+  const lc = section.toLowerCase();
+  const hits = [];
+  for (const s of lib) {
+    const re = new RegExp(`(?<![A-Za-z0-9])${s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}(?![A-Za-z0-9])`, "i");
+    if (re.test(section)) hits.push(s);
+  }
+  return Array.from(new Set(hits));
+}
+
+function extractMust(text) {
+  const sec = sliceSection(text, [
+    "must[- ]haves?","requirements","required skills","key requirements",
+    "minimum qualifications","what you'?ll need","what we'?re looking for","core skills","essential skills"
+  ]) || text;
+  return matchSkills(sec, SKILL_LIB).slice(0, 10);
+}
+
+function extractNice(text) {
+  const sec = sliceSection(text, [
+    "nice[- ]to[- ]haves?","preferred","bonus","good to have","plus","desirable","advantageous"
+  ]);
+  return matchSkills(sec || "", SKILL_LIB).slice(0, 10);
+}
+
+function extractAvoid(text) {
+  const lc = text.toLowerCase();
+  return AVOID_LIB.filter(p => lc.includes(p));
+}
+
+function extractAll(rawText) {
+  const text = cleanText(rawText);
+  const must = extractMust(text);
+  const nice = extractNice(text).filter(n => !must.includes(n));
+  return {
+    code:     extractMandateCode(text),
+    title:    extractTitle(text),
+    client:   extractClient(text),
+    location: extractLocation(text),
+    level:    extractLevel(text),
+    must,
+    nice,
+    avoid:    extractAvoid(text),
+    summary:  extractSummary(text),
+    rawLength: text.length,
+  };
+}
+
+/* ----------------------------- File readers ------------------------------- */
+async function readPdf(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  let out = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(it => it.str).join(" ");
+    out += pageText + "\n\n";
+  }
+  return out;
+}
+
+async function readDocx(file) {
+  const buf = await file.arrayBuffer();
+  const res = await window.mammoth.extractRawText({ arrayBuffer: buf });
+  return res.value || "";
+}
+
+async function readPlain(file) {
+  return await file.text();
+}
+
+async function readJD(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return readPdf(file);
+  if (name.endsWith(".docx") || name.endsWith(".doc")) return readDocx(file);
+  if (name.endsWith(".txt") || name.endsWith(".md")) return readPlain(file);
+  // Best-effort by mime
+  if (file.type === "application/pdf") return readPdf(file);
+  if (file.type.includes("word")) return readDocx(file);
+  return readPlain(file);
+}
+
+/* -------------------------- Chip multi-input atom -------------------------- */
+function ChipInput({ value, onChange, placeholder, tone="default" }) {
+  const [draft, setDraft] = useState("");
+  const tones = {
+    default: "bg-jdteal/15 text-jdtealdk ring-1 ring-jdteal/30",
+    nice:    "bg-jdsand text-jdnavy ring-1 ring-jdnavy/10",
+    avoid:   "bg-rose-100 text-rose-700 ring-1 ring-rose-200",
+  };
+  function commit() {
+    const v = draft.trim().replace(/,$/, "");
+    if (!v) return;
+    if (!value.includes(v)) onChange([...value, v]);
+    setDraft("");
+  }
+  function onKey(e) {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(); }
+    else if (e.key === "Backspace" && !draft && value.length) {
+      onChange(value.slice(0, -1));
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded border border-jdsand focus-within:border-jdteal focus-within:ring-2 focus-within:ring-jdteal/30 px-2 py-1.5 bg-white">
+      {value.map((v, i) => (
+        <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${tones[tone]}`}>
+          {v}
+          <button type="button" onClick={()=>onChange(value.filter((_,j)=>j!==i))}
+            className="text-jdnavy/40 hover:text-rose-500">×</button>
+        </span>
+      ))}
+      <input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit}
+        placeholder={value.length ? "" : placeholder}
+        className="chip-input flex-1 min-w-[8rem] text-sm px-1 py-0.5 bg-transparent" />
+    </div>
+  );
+}
+
+/* ----------------------------------- App ---------------------------------- */
+const EMPTY = { code:"", title:"", client:"", location:"", level:"", must:[], nice:[], avoid:[], summary:"" };
+
+function App() {
+  const [mandate, setMandate] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jd_mandate_v1");
+      if (saved) return { ...EMPTY, ...JSON.parse(saved) };
+    } catch (e) {}
+    return EMPTY;
+  });
+  const [fileMeta, setFileMeta] = useState(null);  // { name, size, type, charsExtracted }
+  const [parseState, setParseState] = useState("idle"); // idle | parsing | done | error
+  const [parseError, setParseError] = useState("");
+  const [extractedFields, setExtractedFields] = useState(null); // which fields just came from JD
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem("jd_mandate_v1", JSON.stringify(mandate)); } catch(e){}
+  }, [mandate]);
+
+  function set(field, value) { setMandate(m => ({ ...m, [field]: value })); }
+
+  async function handleFile(file) {
+    if (!file) return;
+    setFileMeta({ name: file.name, size: file.size, type: file.type });
+    setParseState("parsing");
+    setParseError("");
+    setExtractedFields(null);
+    try {
+      const raw = await readJD(file);
+      if (!raw || raw.trim().length < 40) {
+        throw new Error("Couldn't read meaningful text. If this is a scanned PDF, run OCR first.");
+      }
+      const e = extractAll(raw);
+      const filled = {};
+      ["code","title","client","location","level","summary"].forEach(k => {
+        if (e[k] && !mandate[k]) filled[k] = e[k];
+      });
+      // For arrays: union, dedupe
+      const must  = Array.from(new Set([...mandate.must,  ...e.must]));
+      const nice  = Array.from(new Set([...mandate.nice,  ...e.nice])).filter(n => !must.includes(n));
+      const avoid = Array.from(new Set([...mandate.avoid, ...e.avoid]));
+      setMandate(m => ({ ...m, ...filled, must, nice, avoid }));
+      setExtractedFields({
+        ...filled,
+        must: e.must.length ? e.must : null,
+        nice: e.nice.length ? e.nice : null,
+        avoid: e.avoid.length ? e.avoid : null,
+      });
+      setFileMeta(fm => ({ ...fm, charsExtracted: raw.length }));
+      setParseState("done");
+    } catch (err) {
+      console.error(err);
+      setParseError(err.message || "Failed to parse file.");
+      setParseState("error");
+    }
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) handleFile(f);
+  }
+
+  function clearAll() {
+    if (!confirm("Clear the current brief?")) return;
+    setMandate(EMPTY);
+    setFileMeta(null);
+    setExtractedFields(null);
+    setParseState("idle");
+  }
+
+  function continueToRanking() {
+    if (!mandate.title.trim() || mandate.must.length === 0) {
+      alert("Add at least a role title and one must-have skill before continuing.");
+      return;
+    }
+    // Persist with summary so step 2 banner can show it
+    try { localStorage.setItem("jd_mandate_v1", JSON.stringify(mandate)); } catch(e){}
+    window.location.href = "step2.html";
+  }
+
+  const wasExtracted = (k) => extractedFields && Object.prototype.hasOwnProperty.call(extractedFields, k) && extractedFields[k];
+
+  const completeness = useMemo(() => {
+    let n = 0, total = 6;
+    if (mandate.title) n++;
+    if (mandate.client) n++;
+    if (mandate.location) n++;
+    if (mandate.level) n++;
+    if (mandate.must.length) n++;
+    if (mandate.summary) n++;
+    return Math.round((n/total)*100);
+  }, [mandate]);
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="bg-jdnavy text-white">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-jdteal flex items-center justify-center font-bold text-jdnavy">JD</div>
+            <div>
+              <div className="font-serif text-lg leading-tight">JD AI Search Agent</div>
+              <div className="text-xs text-white/60 stage-pill uppercase">Step 1 · Intake</div>
+            </div>
+          </div>
+          <nav className="flex items-center gap-2 text-sm">
+            <span className="px-3 py-1.5 rounded bg-jdteal text-jdnavy font-semibold">1. Intake</span>
+            <a href="step2.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">2. Rank</a>
+            <a href="step3.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">3. Outreach</a>
+          </nav>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Upload + status (sidebar) */}
+        <aside className="lg:col-span-1 space-y-4">
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-5 py-4 border-b border-jdsand">
+              <div className="font-serif text-lg text-jdnavy">Upload the JD</div>
+              <div className="text-xs text-jdnavy/60">PDF, Word (.docx), or plain text. The agent will fill in the brief for you.</div>
+            </div>
+            <div className="p-5">
+              <div
+                onDragOver={(e)=>{e.preventDefault(); setDragging(true);}}
+                onDragLeave={()=>setDragging(false)}
+                onDrop={onDrop}
+                onClick={()=>fileRef.current?.click()}
+                className={`drop-zone ${dragging?"dragging":""} cursor-pointer border-2 border-dashed border-jdsand rounded-lg p-6 text-center transition-colors hover:border-jdteal hover:bg-jdteal/5`}>
+                <div className="mx-auto w-10 h-10 rounded-full bg-jdteal/15 text-jdtealdk flex items-center justify-center mb-2 font-bold">↑</div>
+                <div className="text-sm font-semibold text-jdnavy">Drop a JD file here</div>
+                <div className="text-xs text-jdnavy/60 mt-1">or click to browse · PDF / DOCX / TXT</div>
+                <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  className="hidden" onChange={(e)=>handleFile(e.target.files?.[0])} />
+              </div>
+
+              {/* Parse status */}
+              {parseState === "parsing" && (
+                <div className="mt-4 flex items-center gap-2 text-xs text-jdtealdk">
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25"/>
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3"/>
+                  </svg>
+                  Reading <b className="ml-1">{fileMeta?.name}</b>…
+                </div>
+              )}
+              {parseState === "done" && fileMeta && (
+                <div className="mt-4 p-3 rounded bg-jdteal/10 border border-jdteal/30 text-xs">
+                  <div className="font-semibold text-jdtealdk flex items-center gap-1">✓ Parsed {fileMeta.name}</div>
+                  <div className="text-jdnavy/70 mt-0.5">{Math.round(fileMeta.charsExtracted/1000)}k chars extracted · {Object.values(extractedFields||{}).filter(Boolean).length} field{Object.values(extractedFields||{}).filter(Boolean).length===1?"":"s"} pre-filled. Review and edit below.</div>
+                </div>
+              )}
+              {parseState === "error" && (
+                <div className="mt-4 p-3 rounded bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                  <div className="font-semibold">Couldn't parse this file</div>
+                  <div className="mt-0.5">{parseError}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Completeness card */}
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand p-5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-serif text-base text-jdnavy">Brief completeness</div>
+              <div className="text-jdteal font-serif text-xl">{completeness}%</div>
+            </div>
+            <div className="h-2 rounded-full bg-jdsand overflow-hidden">
+              <div className="h-full bg-jdteal transition-all" style={{width: `${completeness}%`}}/>
+            </div>
+            <ul className="mt-3 space-y-1 text-xs">
+              {[
+                ["title","Role title"],
+                ["client","Client / company"],
+                ["location","Location"],
+                ["level","Level / seniority"],
+                ["must","Must-have skills",true],
+                ["summary","Role summary"],
+              ].map(([k,l,arr]) => {
+                const filled = arr ? mandate[k].length > 0 : Boolean(mandate[k]);
+                return (
+                  <li key={k} className={`flex items-center gap-2 ${filled?"text-jdtealdk":"text-jdnavy/40"}`}>
+                    <span className={`w-3 h-3 rounded-full ${filled?"bg-jdteal":"bg-jdsand"}`} />
+                    {l}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div className="text-xs text-jdnavy/50 leading-relaxed px-1">
+            Extraction runs entirely in your browser — files never leave this device.
+          </div>
+        </aside>
+
+        {/* Brief form */}
+        <section className="lg:col-span-2">
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-6 py-4 border-b border-jdsand flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="font-serif text-lg text-jdnavy">Mandate brief</div>
+                <div className="text-xs text-jdnavy/60">Fields with a teal dot were auto-filled from the JD — edit anything before saving.</div>
+              </div>
+              <button onClick={clearAll} className="text-xs text-jdnavy/50 hover:text-rose-500">Clear all</button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Field label="Mandate code" extracted={wasExtracted("code")}>
+                  <input value={mandate.code} onChange={e=>set("code", e.target.value)}
+                    placeholder="KH1284"
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none font-mono" />
+                </Field>
+                <Field label="Role title" extracted={wasExtracted("title")} className="md:col-span-2">
+                  <input value={mandate.title} onChange={e=>set("title", e.target.value)}
+                    placeholder="Senior Data Engineer"
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Field label="Client / company" extracted={wasExtracted("client")}>
+                  <input value={mandate.client} onChange={e=>set("client", e.target.value)}
+                    placeholder="Confidential — Regional Bank"
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" />
+                </Field>
+                <Field label="Location" extracted={wasExtracted("location")}>
+                  <input value={mandate.location} onChange={e=>set("location", e.target.value)}
+                    placeholder="Singapore (hybrid)"
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" />
+                </Field>
+                <Field label="Level / seniority" extracted={wasExtracted("level")}>
+                  <select value={mandate.level} onChange={e=>set("level", e.target.value)}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none bg-white">
+                    <option value="">—</option>
+                    {["Junior","Mid-level","Senior IC","Senior IC / Lead","Lead / Staff","Director / Principal","Head / VP"].map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="Must-have skills" extracted={wasExtracted("must")}>
+                <ChipInput value={mandate.must} onChange={v=>set("must", v)} placeholder="Type a skill and press Enter (e.g. Python)…" />
+              </Field>
+
+              <Field label="Nice-to-have skills" extracted={wasExtracted("nice")}>
+                <ChipInput value={mandate.nice} onChange={v=>set("nice", v)} placeholder="dbt, Snowflake, FSI…" tone="nice" />
+              </Field>
+
+              <Field label="Avoid flags" extracted={wasExtracted("avoid")} hint="Signals that disqualify or downrank a candidate.">
+                <ChipInput value={mandate.avoid} onChange={v=>set("avoid", v)} placeholder="junior only, contractor-only…" tone="avoid" />
+              </Field>
+
+              <Field label="Role summary" extracted={wasExtracted("summary")}>
+                <textarea rows="4" value={mandate.summary} onChange={e=>set("summary", e.target.value)}
+                  placeholder="One-paragraph description of the role: what they'll build, who they'll work with, what success looks like…"
+                  className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none leading-relaxed" />
+              </Field>
+            </div>
+
+            <div className="px-6 py-4 border-t border-jdsand bg-jdcream/60 flex items-center justify-between flex-wrap gap-3">
+              <div className="text-xs text-jdnavy/60">
+                Saved locally as you type. Brief is shared with Steps 2 and 3.
+              </div>
+              <button onClick={continueToRanking}
+                className="bg-jdteal hover:bg-jdtealdk text-white font-semibold px-6 py-2.5 rounded-md tracking-wide transition-colors">
+                Save brief & rank candidates →
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="max-w-7xl mx-auto px-6 py-8 text-xs text-jdnavy/40">
+        JD AI Search Agent · Step 1 of 3 · JD files are parsed in-browser; nothing is uploaded to a server.
+      </footer>
+    </div>
+  );
+}
+
+function Field({ label, hint, extracted, children, className="" }) {
+  return (
+    <div className={className}>
+      <div className="flex items-center gap-2 mb-1">
+        <label className="text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider">{label}</label>
+        {extracted && (
+          <span title="Auto-filled from your JD upload" className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-jdteal">
+            <span className="w-1.5 h-1.5 rounded-full bg-jdteal" /> From JD
+          </span>
+        )}
+      </div>
+      {children}
+      {hint && <div className="text-[11px] text-jdnavy/50 mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

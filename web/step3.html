@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Step 3 — Outreach Drafter · JD AI Search Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          jdnavy: "#1B2A4E",
+          jdnavydk: "#13203B",
+          jdteal: "#4FB3A9",
+          jdtealdk: "#3E938B",
+          jdcream: "#F7F4EE",
+          jdsand:  "#EDE7DA",
+          linkedin: "#0A66C2",
+          gmail: "#C5221F",
+        },
+        fontFamily: {
+          sans: ['Inter','ui-sans-serif','system-ui','sans-serif'],
+          serif: ['"Source Serif Pro"','Georgia','serif']
+        }
+      }
+    }
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@600;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { background: #F7F4EE; }
+  .stage-pill { letter-spacing: 0.18em; font-size: 11px; }
+  textarea.preview, input.preview { font-family: 'Inter', system-ui, sans-serif; }
+</style>
+</head>
+<body class="font-sans text-jdnavy">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef } = React;
+
+/* --- Fallback payload so step3.html opens demo-ready if Step 2 not run --- */
+const FALLBACK = {
+  mandate: {
+    code: "KH1284",
+    title: "Senior Data Engineer",
+    client: "Confidential — Regional Bank",
+    location: "Singapore (hybrid)",
+    summary: "Build a regional data platform on AWS; own DAGs, modeling, and downstream BI handoff. Lead 2 mid engineers."
+  },
+  shortlisted: [
+    { id:1, name:"Priya Nair",   title:"Senior Data Engineer", company:"GrabPay", years:7, score:88,
+      experience:"Python, Airflow, dbt, Snowflake, AWS, led migration of payments DW, mentored 3 juniors",
+      linkedin:"https://linkedin.com/in/priya-nair",
+      mustHits:["Python","Airflow","AWS","Data Warehouse"], niceHits:["dbt","Snowflake"] },
+    { id:5, name:"Wei Ling Goh", title:"Lead Data Engineer",   company:"OCBC",    years:9, score:92,
+      experience:"Python, Spark, Airflow, AWS, Snowflake, Kafka, Terraform. Led DW build for retail banking.",
+      linkedin:"https://linkedin.com/in/weiling-goh",
+      mustHits:["Python","Spark","Airflow","AWS","Data Warehouse"], niceHits:["Snowflake","Kafka","Terraform","Banking","FSI"] },
+  ],
+};
+
+/* ------------------------------ Template logic ----------------------------- */
+function firstName(full) { return (full || "").trim().split(/\s+/)[0] || "there"; }
+function hookFor(cand, mandate) {
+  // pick the strongest signal we have about this candidate
+  const hits = [...(cand.mustHits||[]), ...(cand.niceHits||[])];
+  const standout = hits.slice(0,3).join(", ");
+  if (standout && /bank|fsi|finance/i.test(cand.experience || "")) {
+    return `your ${standout} work in financial services`;
+  }
+  if (standout) return `your hands-on experience with ${standout}`;
+  return `your background at ${cand.company || "your current company"}`;
+}
+function whyReachOut(cand, mandate) {
+  const score = cand.score || 0;
+  if (score >= 85) return `Your profile is one of the strongest matches we've seen for this mandate — particularly on the platform and pipeline side.`;
+  if (score >= 70) return `Your experience lines up closely with what the client needs, especially around the data platform stack.`;
+  return `What you've built so far overlaps meaningfully with what the client is hiring for.`;
+}
+
+function gmailTemplate(c, m, sender) {
+  const fn = firstName(c.name);
+  const hook = hookFor(c, m);
+  const why = whyReachOut(c, m);
+  const subject = `${m.title} role — would love your take, ${fn}`;
+  const body =
+`Hi ${fn},
+
+I came across your LinkedIn profile (${c.linkedin || "—"}) and was struck by ${hook}.
+
+I'm working on a ${m.title} mandate (${m.code}) with ${m.client}, based in ${m.location}. In short: ${m.summary}
+
+${why} A few specifics that caught my eye:
+${(c.mustHits || []).slice(0,4).map(h => `  • ${h}`).join("\n") || "  • Your trajectory at " + (c.company || "your current company")}
+
+If the timing's right, would you be open to a 20-minute call this week or next so I can share the full brief and hear what you'd be looking for in your next move? Happy to keep it confidential either way.
+
+Best,
+${sender.name}
+${sender.title}, ${sender.firm}
+${sender.email}`;
+  return { subject, body };
+}
+
+function inmailTemplate(c, m, sender) {
+  const fn = firstName(c.name);
+  const hook = hookFor(c, m);
+  const subject = `Quick one on a ${m.title} role, ${fn}`;
+  const body =
+`Hi ${fn} — ${hook} caught my eye.
+
+I'm running a confidential search for a ${m.title} with ${m.client} (${m.location}). It's a build role: ${m.summary.split(";")[0].trim()}.
+
+Open to a 15-min call to compare notes? No pressure if the timing isn't right — would still value staying in touch.
+
+— ${sender.name}, ${sender.firm}`;
+  return { subject, body };
+}
+
+/* ------------------------------- UI helpers -------------------------------- */
+function ScoreBadge({ score }) {
+  const tone = score >= 75 ? "bg-jdteal text-white" : score >= 55 ? "bg-jdteal/20 text-jdtealdk" : "bg-jdsand text-jdnavy";
+  return <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${tone}`}>{score}/100</span>;
+}
+
+function CopyButton({ text, label="Copy" }) {
+  const [done, setDone] = useState(false);
+  function doCopy() {
+    navigator.clipboard?.writeText(text).then(() => {
+      setDone(true);
+      setTimeout(() => setDone(false), 1600);
+    });
+  }
+  return (
+    <button onClick={doCopy}
+      className="text-xs px-2.5 py-1 rounded border border-jdsand bg-white hover:border-jdteal hover:text-jdtealdk text-jdnavy font-semibold">
+      {done ? "Copied ✓" : label}
+    </button>
+  );
+}
+
+/* ----------------------------------- App ---------------------------------- */
+function App() {
+  const [payload, setPayload] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jd_outreach_payload_v1");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return FALLBACK;
+  });
+  const usingFallback = !localStorage.getItem("jd_outreach_payload_v1");
+
+  const [selectedId, setSelectedId] = useState(payload.shortlisted[0]?.id);
+  const [format, setFormat] = useState("gmail");
+  const [sender, setSender] = useState(() => {
+    try {
+      const s = localStorage.getItem("jd_sender_v1");
+      if (s) return JSON.parse(s);
+    } catch(e){}
+    return { name: "Yvonne Tan", title: "Principal Consultant", firm: "JD Search", email: "yvonne@jdsearch.com" };
+  });
+  useEffect(() => {
+    try { localStorage.setItem("jd_sender_v1", JSON.stringify(sender)); } catch(e){}
+  }, [sender]);
+
+  const [drafts, setDrafts] = useState({}); // { [candId]: { gmail:{subject,body}, inmail:{subject,body} } }
+
+  const selected = payload.shortlisted.find(c => c.id === selectedId) || payload.shortlisted[0];
+
+  // Generate / regenerate the draft for current candidate+format if none stored yet
+  const draftKey = selected ? selected.id : null;
+  const currentDraft = useMemo(() => {
+    if (!selected) return { subject:"", body:"" };
+    const stored = drafts[draftKey]?.[format];
+    if (stored) return stored;
+    return format === "gmail"
+      ? gmailTemplate(selected, payload.mandate, sender)
+      : inmailTemplate(selected, payload.mandate, sender);
+  }, [selected, format, drafts, sender, payload.mandate, draftKey]);
+
+  function updateDraft(field, value) {
+    setDrafts(d => ({
+      ...d,
+      [draftKey]: {
+        ...d[draftKey],
+        [format]: { ...currentDraft, [field]: value }
+      }
+    }));
+  }
+
+  function regenerate() {
+    const fresh = format === "gmail"
+      ? gmailTemplate(selected, payload.mandate, sender)
+      : inmailTemplate(selected, payload.mandate, sender);
+    setDrafts(d => ({
+      ...d,
+      [draftKey]: { ...d[draftKey], [format]: fresh }
+    }));
+  }
+
+  function openInGmail() {
+    const params = new URLSearchParams({
+      view: "cm", fs: "1",
+      su: currentDraft.subject,
+      body: currentDraft.body,
+    });
+    window.open(`https://mail.google.com/mail/?${params.toString()}`, "_blank");
+  }
+
+  function openLinkedIn() {
+    // Open candidate's profile; user pastes via copy button (InMail can't be deep-linked)
+    if (selected?.linkedin) window.open(selected.linkedin, "_blank");
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="bg-jdnavy text-white">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-jdteal flex items-center justify-center font-bold text-jdnavy">JD</div>
+            <div>
+              <div className="font-serif text-lg leading-tight">JD AI Search Agent</div>
+              <div className="text-xs text-white/60 stage-pill uppercase">Step 3 · Outreach Drafter</div>
+            </div>
+          </div>
+          <nav className="flex items-center gap-2 text-sm">
+            <a href="step1.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">1. Intake</a>
+            <a href="step2.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">2. Rank</a>
+            <span className="px-3 py-1.5 rounded bg-jdteal text-jdnavy font-semibold">3. Outreach</span>
+          </nav>
+        </div>
+      </header>
+
+      {/* Mandate strip */}
+      <section className="bg-jdnavydk text-white/90">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex flex-wrap items-center gap-3 justify-between">
+          <div className="flex items-center gap-3">
+            <div className="px-2 py-0.5 rounded bg-jdteal/20 text-jdteal text-[11px] font-bold tracking-widest">MANDATE {payload.mandate.code}</div>
+            <div className="font-serif text-white">{payload.mandate.title}</div>
+            <div className="text-xs text-white/50">· {payload.mandate.client} · {payload.mandate.location}</div>
+          </div>
+          {usingFallback && (
+            <div className="text-[11px] text-amber-200/90 bg-amber-500/10 px-2 py-1 rounded">
+              Demo data — go to <a href="step2.html" className="underline">Step 2</a> to shortlist real candidates.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Candidate list */}
+        <aside className="lg:col-span-3">
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-4 py-3 border-b border-jdsand">
+              <div className="font-serif text-base text-jdnavy">Shortlisted</div>
+              <div className="text-xs text-jdnavy/60">{payload.shortlisted.length} candidate{payload.shortlisted.length===1?"":"s"}</div>
+            </div>
+            <div className="divide-y divide-jdsand">
+              {payload.shortlisted.length === 0 && (
+                <div className="p-6 text-sm text-jdnavy/50 text-center">
+                  No shortlisted candidates yet. <a href="step2.html" className="text-jdteal underline">Go to Step 2</a>.
+                </div>
+              )}
+              {payload.shortlisted.map(c => {
+                const isSel = c.id === selectedId;
+                return (
+                  <button key={c.id} onClick={()=>setSelectedId(c.id)}
+                    className={`w-full text-left px-4 py-3 transition-colors ${isSel ? "bg-jdteal/10 border-l-4 border-jdteal" : "hover:bg-jdcream border-l-4 border-transparent"}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-jdnavy truncate">{c.name}</div>
+                        <div className="text-xs text-jdnavy/60 truncate">{c.title}</div>
+                        <div className="text-[11px] text-jdnavy/50 truncate">{c.company}</div>
+                      </div>
+                      <ScoreBadge score={c.score} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Sender card */}
+          <div className="mt-4 bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-4 py-3 border-b border-jdsand">
+              <div className="font-serif text-base text-jdnavy">From</div>
+              <div className="text-xs text-jdnavy/60">Used in the signature.</div>
+            </div>
+            <div className="p-4 space-y-2.5">
+              {[
+                ["name","Name"],
+                ["title","Title"],
+                ["firm","Firm"],
+                ["email","Email"],
+              ].map(([k,l]) => (
+                <div key={k}>
+                  <label className="block text-[10px] uppercase tracking-widest text-jdnavy/50 mb-0.5">{l}</label>
+                  <input value={sender[k]} onChange={e=>setSender({...sender,[k]:e.target.value})}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-2.5 py-1.5 text-sm outline-none" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* Drafter */}
+        <section className="lg:col-span-9">
+          {!selected ? (
+            <div className="bg-white rounded-lg border border-jdsand p-12 text-center text-jdnavy/60">
+              Select a candidate on the left to start drafting outreach.
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow-sm border border-jdsand overflow-hidden">
+              {/* Candidate summary */}
+              <div className="px-6 py-4 border-b border-jdsand flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="font-serif text-xl text-jdnavy">{selected.name}</div>
+                    <ScoreBadge score={selected.score} />
+                  </div>
+                  <div className="text-sm text-jdnavy/70">{selected.title} · {selected.company}{selected.years ? ` · ${selected.years} yrs` : ""}</div>
+                  {selected.linkedin && (
+                    <a href={selected.linkedin} target="_blank" rel="noopener"
+                       className="text-xs text-jdteal hover:text-jdtealdk inline-flex items-center gap-1 mt-1">
+                      {selected.linkedin.replace(/^https?:\/\//,'')} ↗
+                    </a>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(selected.mustHits || []).map(h => <span key={h} className="px-2 py-0.5 rounded bg-jdteal/15 text-jdtealdk text-[11px] font-medium">{h}</span>)}
+                    {(selected.niceHits || []).map(h => <span key={h} className="px-2 py-0.5 rounded bg-jdsand text-jdnavy text-[11px]">+{h}</span>)}
+                  </div>
+                </div>
+
+                {/* Format toggle */}
+                <div className="flex items-center gap-1 p-1 bg-jdcream rounded-md border border-jdsand">
+                  <button onClick={()=>setFormat("gmail")}
+                    className={`px-3.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors ${format==="gmail" ? "bg-white shadow text-gmail" : "text-jdnavy/60 hover:text-jdnavy"}`}>
+                    <span className="w-2 h-2 rounded-full bg-gmail" /> Gmail
+                  </button>
+                  <button onClick={()=>setFormat("inmail")}
+                    className={`px-3.5 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors ${format==="inmail" ? "bg-white shadow text-linkedin" : "text-jdnavy/60 hover:text-jdnavy"}`}>
+                    <span className="w-2 h-2 rounded-full bg-linkedin" /> LinkedIn InMail
+                  </button>
+                </div>
+              </div>
+
+              {/* Format banner */}
+              <div className={`px-6 py-2 text-xs flex items-center justify-between ${format==="gmail" ? "bg-gmail/5 text-gmail" : "bg-linkedin/5 text-linkedin"}`}>
+                <div>
+                  {format === "gmail"
+                    ? "Email format — longer, includes signature. Best when you have a personal email address."
+                    : "InMail format — shorter, more direct. Best for cold LinkedIn outreach (300-word soft limit)."}
+                </div>
+                <button onClick={regenerate} className="font-semibold underline decoration-dotted hover:no-underline">Regenerate from template</button>
+              </div>
+
+              {/* Editor + preview */}
+              <div className="grid grid-cols-1 lg:grid-cols-2">
+                {/* Editor */}
+                <div className="p-6 border-r border-jdsand">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[10px] uppercase tracking-widest text-jdnavy/50">Subject</div>
+                    <CopyButton text={currentDraft.subject} label="Copy subject" />
+                  </div>
+                  <input value={currentDraft.subject}
+                    onChange={e=>updateDraft("subject", e.target.value)}
+                    className="preview w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none font-semibold" />
+
+                  <div className="flex items-center justify-between mt-5 mb-2">
+                    <div className="text-[10px] uppercase tracking-widest text-jdnavy/50">Body</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-jdnavy/40">{currentDraft.body.length} chars · {currentDraft.body.split(/\s+/).filter(Boolean).length} words</span>
+                      <CopyButton text={currentDraft.body} label="Copy body" />
+                    </div>
+                  </div>
+                  <textarea value={currentDraft.body}
+                    onChange={e=>updateDraft("body", e.target.value)}
+                    rows={format==="gmail" ? 18 : 10}
+                    className="preview w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none leading-relaxed whitespace-pre-wrap" />
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {format === "gmail" ? (
+                      <button onClick={openInGmail}
+                        className="bg-jdnavy hover:bg-jdnavydk text-white text-sm font-semibold px-4 py-2 rounded inline-flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-gmail" /> Open in Gmail
+                      </button>
+                    ) : (
+                      <button onClick={openLinkedIn}
+                        className="bg-linkedin hover:bg-linkedin/90 text-white text-sm font-semibold px-4 py-2 rounded inline-flex items-center gap-2">
+                        Open profile to send InMail ↗
+                      </button>
+                    )}
+                    <CopyButton text={`Subject: ${currentDraft.subject}\n\n${currentDraft.body}`} label="Copy full draft" />
+                  </div>
+                </div>
+
+                {/* Preview */}
+                <div className="bg-jdcream/60 p-6">
+                  <div className="text-[10px] uppercase tracking-widest text-jdnavy/50 mb-3">Preview</div>
+                  {format === "gmail" ? (
+                    <div className="bg-white rounded shadow-sm border border-jdsand">
+                      <div className="px-4 py-3 border-b border-jdsand">
+                        <div className="text-[11px] text-jdnavy/50">To</div>
+                        <div className="text-sm text-jdnavy">{firstName(selected.name)} &lt;{firstName(selected.name).toLowerCase()}@example.com&gt;</div>
+                      </div>
+                      <div className="px-4 py-3 border-b border-jdsand">
+                        <div className="text-[11px] text-jdnavy/50">Subject</div>
+                        <div className="text-sm font-semibold text-jdnavy">{currentDraft.subject}</div>
+                      </div>
+                      <pre className="px-4 py-4 text-sm whitespace-pre-wrap font-sans leading-relaxed text-jdnavy/90">{currentDraft.body}</pre>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded shadow-sm border border-jdsand max-w-md mx-auto">
+                      <div className="px-4 py-3 border-b border-jdsand bg-linkedin text-white flex items-center gap-2">
+                        <div className="w-7 h-7 rounded bg-white text-linkedin font-bold flex items-center justify-center text-sm">in</div>
+                        <div className="text-xs">InMail to <b>{selected.name}</b></div>
+                      </div>
+                      <div className="px-4 py-3 border-b border-jdsand">
+                        <div className="text-[11px] text-jdnavy/50">Subject (60 char max)</div>
+                        <div className="text-sm font-semibold text-jdnavy">{currentDraft.subject}</div>
+                        <div className={`text-[11px] mt-0.5 ${currentDraft.subject.length>60 ? "text-rose-600" : "text-jdnavy/40"}`}>
+                          {currentDraft.subject.length}/60
+                        </div>
+                      </div>
+                      <pre className="px-4 py-4 text-sm whitespace-pre-wrap font-sans leading-relaxed text-jdnavy/90">{currentDraft.body}</pre>
+                      <div className="px-4 py-2 border-t border-jdsand text-[11px] text-jdnavy/40 flex justify-between">
+                        <span>~{currentDraft.body.split(/\s+/).filter(Boolean).length} words</span>
+                        <span>Soft limit: 300 words</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer nav */}
+          <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
+            <a href="step2.html" className="text-sm text-jdnavy/60 hover:text-jdnavy">← Back to ranking</a>
+            <div className="text-xs text-jdnavy/50">
+              Drafts are local to this browser. Copy or open in Gmail / LinkedIn to send.
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="max-w-7xl mx-auto px-6 py-8 text-xs text-jdnavy/40">
+        JD AI Search Agent · Step 3 of 3 · Outreach is drafted from local templates; review before sending.
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

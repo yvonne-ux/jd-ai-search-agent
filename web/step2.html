@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Step 2 — Candidate Ranking · JD AI Search Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          jdnavy: "#1B2A4E",
+          jdnavydk: "#13203B",
+          jdteal: "#4FB3A9",
+          jdtealdk: "#3E938B",
+          jdcream: "#F7F4EE",
+          jdsand:  "#EDE7DA",
+        },
+        fontFamily: {
+          sans: ['Inter','ui-sans-serif','system-ui','sans-serif'],
+          serif: ['"Source Serif Pro"','Georgia','serif']
+        }
+      }
+    }
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@600;700&display=swap" rel="stylesheet">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { background: #F7F4EE; }
+  .stage-pill { letter-spacing: 0.18em; font-size: 11px; }
+  .score-bar { background: linear-gradient(90deg, #4FB3A9 0%, #1B2A4E 100%); }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+</style>
+</head>
+<body class="font-sans text-jdnavy">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect } = React;
+
+/* ----------- Mock active mandate (loaded from Step 1 in real app) ---------- */
+const DEFAULT_MANDATE = {
+  code: "KH1284",
+  title: "Senior Data Engineer",
+  client: "Confidential — Regional Bank",
+  location: "Singapore (hybrid)",
+  level: "Senior IC / Lead",
+  must:    ["Python","SQL","Airflow","AWS","Data Warehouse","Spark"],
+  nice:    ["dbt","Kafka","Snowflake","Terraform","Banking","FSI"],
+  avoid:   ["junior only","< 4 yrs","contractor-only"],
+  summary: "Build a regional data platform on AWS; own DAGs, modeling, and downstream BI handoff. Lead 2 mid engineers."
+};
+
+/* ------------- Seed candidates so the page demos out of the box ------------ */
+const SEED = [
+  { id: 1, name: "Priya Nair",       title: "Senior Data Engineer",   company: "GrabPay",      years: 7, experience: "Python, Airflow, dbt, Snowflake, AWS, led migration of payments DW, mentored 3 juniors", linkedin: "https://linkedin.com/in/priya-nair" },
+  { id: 2, name: "Marcus Tan",       title: "Data Engineer II",       company: "DBS Bank",     years: 5, experience: "Python, SQL, Spark on EMR, banking FSI domain, Airflow DAGs, Terraform basics", linkedin: "https://linkedin.com/in/marcus-tan" },
+  { id: 3, name: "Aisha Rahman",     title: "Analytics Engineer",     company: "Shopee",       years: 4, experience: "dbt, SQL, Snowflake, Looker. Strong modeling. Limited Airflow.", linkedin: "https://linkedin.com/in/aisha-rahman" },
+  { id: 4, name: "Jonathan Lee",     title: "Senior Backend Engineer",company: "Stripe APAC",  years: 8, experience: "Go, Python, Kafka, AWS, microservices. Some data pipeline work but mostly product backend.", linkedin: "https://linkedin.com/in/jonathan-lee" },
+  { id: 5, name: "Wei Ling Goh",     title: "Lead Data Engineer",     company: "OCBC",         years: 9, experience: "Python, Spark, Airflow, AWS, Snowflake, Kafka, Terraform. Led DW build for retail banking. Owns FSI compliance reviews.", linkedin: "https://linkedin.com/in/weiling-goh" },
+];
+
+/* ------------------------------ Scoring logic ------------------------------ */
+function scoreCandidate(c, m) {
+  const hay = (c.title + " " + c.company + " " + c.experience).toLowerCase();
+  const mustHits  = m.must.filter(k => hay.includes(k.toLowerCase()));
+  const niceHits  = m.nice.filter(k => hay.includes(k.toLowerCase()));
+  const avoidHits = m.avoid.filter(k => hay.includes(k.toLowerCase()));
+
+  const mustPct  = m.must.length ? mustHits.length / m.must.length : 0;
+  const nicePct  = m.nice.length ? niceHits.length / m.nice.length : 0;
+
+  // Seniority signal from years (if provided)
+  const yrs = Number(c.years) || 0;
+  const senSignal = yrs >= 6 ? 1 : yrs >= 4 ? 0.7 : yrs >= 2 ? 0.4 : 0.1;
+
+  let score = mustPct * 65 + nicePct * 20 + senSignal * 15;
+  score -= avoidHits.length * 12;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  return { score, mustHits, niceHits, avoidHits, mustPct, nicePct };
+}
+
+function tierFor(score) {
+  if (score >= 75) return { label: "Strong match",   tone: "bg-jdteal text-white" };
+  if (score >= 55) return { label: "Worth a look",   tone: "bg-jdteal/20 text-jdtealdk" };
+  if (score >= 35) return { label: "Stretch",        tone: "bg-jdsand text-jdnavy" };
+  return                  { label: "Likely off-spec", tone: "bg-rose-100 text-rose-700" };
+}
+
+/* ------------------------------- UI atoms --------------------------------- */
+function Chip({ children, tone="default" }) {
+  const tones = {
+    default: "bg-jdsand text-jdnavy",
+    hit:     "bg-jdteal/20 text-jdtealdk ring-1 ring-jdteal/40",
+    miss:    "bg-white text-jdnavy/40 ring-1 ring-jdnavy/10 line-through",
+    avoid:   "bg-rose-100 text-rose-700 ring-1 ring-rose-200",
+    nice:    "bg-white text-jdnavy/70 ring-1 ring-jdnavy/15",
+  };
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${tones[tone]}`}>{children}</span>;
+}
+
+function StageButton({ active, color, onClick, children }) {
+  const palette = {
+    shortlist: active ? "bg-jdteal text-white shadow-sm" : "text-jdtealdk hover:bg-jdteal/10",
+    maybe:     active ? "bg-amber-400 text-jdnavy shadow-sm" : "text-amber-700 hover:bg-amber-50",
+    pass:      active ? "bg-rose-500 text-white shadow-sm" : "text-rose-600 hover:bg-rose-50",
+  };
+  return (
+    <button onClick={onClick}
+      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${palette[color]}`}>
+      {children}
+    </button>
+  );
+}
+
+/* --------------------------------- App ------------------------------------ */
+function loadMandate() {
+  try {
+    const saved = localStorage.getItem("jd_mandate_v1");
+    if (saved) {
+      const m = JSON.parse(saved);
+      // Backfill any missing arrays so scoring never explodes
+      return {
+        ...DEFAULT_MANDATE,
+        ...m,
+        must:  Array.isArray(m.must)  ? m.must  : DEFAULT_MANDATE.must,
+        nice:  Array.isArray(m.nice)  ? m.nice  : DEFAULT_MANDATE.nice,
+        avoid: Array.isArray(m.avoid) ? m.avoid : DEFAULT_MANDATE.avoid,
+      };
+    }
+  } catch (e) {}
+  return DEFAULT_MANDATE;
+}
+
+function App() {
+  const [mandate] = useState(loadMandate);
+  const usingDemoMandate = !localStorage.getItem("jd_mandate_v1");
+  const [candidates, setCandidates] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jd_candidates_v1");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return SEED.map(c => ({ ...c, stage: null }));
+  });
+  const [form, setForm] = useState({ name:"", title:"", company:"", years:"", experience:"", linkedin:"" });
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    try { localStorage.setItem("jd_candidates_v1", JSON.stringify(candidates)); } catch(e){}
+  }, [candidates]);
+
+  const ranked = useMemo(() => {
+    return candidates
+      .map(c => ({ ...c, ...scoreCandidate(c, mandate) }))
+      .sort((a,b) => b.score - a.score);
+  }, [candidates, mandate]);
+
+  const visible = ranked.filter(r => {
+    if (filter === "all") return true;
+    if (filter === "unmarked") return !r.stage;
+    return r.stage === filter;
+  });
+
+  const counts = ranked.reduce((acc,r) => {
+    acc[r.stage || "unmarked"] = (acc[r.stage || "unmarked"] || 0) + 1;
+    return acc;
+  }, { shortlist:0, maybe:0, pass:0, unmarked:0 });
+
+  function addCandidate(e) {
+    e?.preventDefault?.();
+    if (!form.name.trim() || !form.title.trim()) return;
+    const next = {
+      id: Date.now(),
+      name: form.name.trim(),
+      title: form.title.trim(),
+      company: form.company.trim(),
+      years: form.years,
+      experience: form.experience.trim(),
+      linkedin: form.linkedin.trim(),
+      stage: null,
+    };
+    setCandidates(cs => [next, ...cs]);
+    setForm({ name:"", title:"", company:"", years:"", experience:"", linkedin:"" });
+  }
+
+  function setStage(id, stage) {
+    setCandidates(cs => cs.map(c => c.id === id ? { ...c, stage: c.stage === stage ? null : stage } : c));
+  }
+
+  function removeCandidate(id) {
+    setCandidates(cs => cs.filter(c => c.id !== id));
+  }
+
+  function continueToOutreach() {
+    const shortlist = ranked.filter(r => r.stage === "shortlist");
+    if (shortlist.length === 0) {
+      alert("Mark at least one candidate as Shortlisted before continuing.");
+      return;
+    }
+    const payload = {
+      mandate,
+      shortlisted: shortlist.map(({score, mustHits, niceHits, mustPct, nicePct, avoidHits, ...c}) => ({
+        ...c, score, mustHits, niceHits
+      })),
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem("jd_outreach_payload_v1", JSON.stringify(payload));
+    window.location.href = "step3.html";
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="bg-jdnavy text-white">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-jdteal flex items-center justify-center font-bold text-jdnavy">JD</div>
+            <div>
+              <div className="font-serif text-lg leading-tight">JD AI Search Agent</div>
+              <div className="text-xs text-white/60 stage-pill uppercase">Step 2 · Candidate Ranking</div>
+            </div>
+          </div>
+          <nav className="flex items-center gap-2 text-sm">
+            <a href="step1.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">1. Intake</a>
+            <span className="px-3 py-1.5 rounded bg-jdteal text-jdnavy font-semibold">2. Rank</span>
+            <a href="step3.html" className="px-3 py-1.5 rounded text-white/70 hover:text-white">3. Outreach</a>
+          </nav>
+        </div>
+      </header>
+
+      {/* Active mandate banner */}
+      <section className="bg-jdnavydk text-white/90">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="px-2.5 py-1 rounded bg-jdteal/20 text-jdteal text-[11px] font-bold tracking-widest">MANDATE {mandate.code}</div>
+            <div>
+              <div className="font-serif text-xl text-white">{mandate.title}</div>
+              <div className="text-xs text-white/60">{mandate.client} · {mandate.location} · {mandate.level}</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {mandate.must.map(k => <span key={k} className="px-2 py-0.5 rounded bg-jdteal text-jdnavy text-[11px] font-semibold">{k}</span>)}
+            {mandate.nice.map(k => <span key={k} className="px-2 py-0.5 rounded bg-white/10 text-white/80 text-[11px]">{k}</span>)}
+          </div>
+        </div>
+        {usingDemoMandate && (
+          <div className="max-w-7xl mx-auto px-6 pb-3 -mt-1">
+            <div className="text-[11px] text-amber-200/90 bg-amber-500/10 px-2 py-1 rounded inline-block">
+              Demo mandate — <a href="step1.html" className="underline">upload a JD in Step 1</a> to use a real one.
+            </div>
+          </div>
+        )}
+      </section>
+
+      <main className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Add candidate */}
+        <section className="lg:col-span-1">
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-5 py-4 border-b border-jdsand">
+              <div className="font-serif text-lg text-jdnavy">Add a candidate</div>
+              <div className="text-xs text-jdnavy/60">Score is recomputed live against the mandate above.</div>
+            </div>
+            <form onSubmit={addCandidate} className="p-5 space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">Name</label>
+                <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
+                  className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" placeholder="e.g. Aaron Lim" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">Current title</label>
+                  <input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" placeholder="Senior Data Engineer" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">Company</label>
+                  <input value={form.company} onChange={e=>setForm({...form,company:e.target.value})}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" placeholder="Grab" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">Years exp</label>
+                  <input type="number" min="0" value={form.years} onChange={e=>setForm({...form,years:e.target.value})}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" placeholder="6" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">LinkedIn URL</label>
+                  <input value={form.linkedin} onChange={e=>setForm({...form,linkedin:e.target.value})}
+                    className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none" placeholder="linkedin.com/in/…" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-jdnavy/70 uppercase tracking-wider mb-1">Key experience</label>
+                <textarea rows="4" value={form.experience} onChange={e=>setForm({...form,experience:e.target.value})}
+                  className="w-full rounded border border-jdsand focus:border-jdteal focus:ring-2 focus:ring-jdteal/30 px-3 py-2 text-sm outline-none"
+                  placeholder="Python, Airflow, AWS, led DW migration at fintech…" />
+                <div className="text-[11px] text-jdnavy/50 mt-1">Tip: include tools, domains, scale, leadership.</div>
+              </div>
+              <button type="submit"
+                className="w-full bg-jdnavy hover:bg-jdnavydk text-white py-2.5 rounded font-semibold text-sm tracking-wide transition-colors">
+                Score against mandate
+              </button>
+            </form>
+          </div>
+
+          <div className="mt-4 p-4 rounded-lg bg-jdsand/60 border border-jdsand text-xs text-jdnavy/70 leading-relaxed">
+            <div className="font-semibold text-jdnavy mb-1">How scoring works</div>
+            Each candidate is matched against the mandate's <b>must-haves (65%)</b>, <b>nice-to-haves (20%)</b>, and a <b>seniority signal (15%)</b>. Avoid-flags deduct from the total.
+          </div>
+        </section>
+
+        {/* Ranking table */}
+        <section className="lg:col-span-2">
+          <div className="bg-white rounded-lg shadow-sm border border-jdsand">
+            <div className="px-5 py-4 border-b border-jdsand flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="font-serif text-lg text-jdnavy">Ranked candidates</div>
+                <div className="text-xs text-jdnavy/60">{ranked.length} total · {counts.shortlist} shortlisted · {counts.maybe} maybe · {counts.pass} passed</div>
+              </div>
+              <div className="flex items-center gap-1 bg-jdsand/50 rounded p-1 text-xs">
+                {[
+                  ["all","All"],
+                  ["unmarked","Unmarked"],
+                  ["shortlist","Shortlist"],
+                  ["maybe","Maybe"],
+                  ["pass","Pass"],
+                ].map(([k,l]) => (
+                  <button key={k} onClick={()=>setFilter(k)}
+                    className={`px-2.5 py-1 rounded ${filter===k ? "bg-white shadow text-jdnavy font-semibold" : "text-jdnavy/60 hover:text-jdnavy"}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="divide-y divide-jdsand">
+              {visible.length === 0 && (
+                <div className="p-10 text-center text-sm text-jdnavy/50">No candidates in this view yet.</div>
+              )}
+              {visible.map((c, i) => {
+                const tier = tierFor(c.score);
+                const rank = ranked.findIndex(r => r.id === c.id) + 1;
+                return (
+                  <div key={c.id} className="p-5 hover:bg-jdcream/60 transition-colors">
+                    <div className="flex items-start gap-4">
+                      {/* Rank + score */}
+                      <div className="shrink-0 w-20">
+                        <div className="text-[10px] uppercase tracking-widest text-jdnavy/40">Rank</div>
+                        <div className="font-serif text-2xl text-jdnavy leading-none">#{rank}</div>
+                        <div className="mt-2 flex items-baseline gap-1">
+                          <span className="font-serif text-3xl text-jdteal leading-none">{c.score}</span>
+                          <span className="text-xs text-jdnavy/50">/100</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 w-full rounded-full bg-jdsand overflow-hidden">
+                          <div className="h-full score-bar" style={{width: `${c.score}%`}} />
+                        </div>
+                      </div>
+
+                      {/* Candidate detail */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="font-semibold text-jdnavy text-base">{c.name}</div>
+                          <span className={`stage-pill uppercase px-2 py-0.5 rounded ${tier.tone}`}>{tier.label}</span>
+                          {c.stage === "shortlist" && <span className="stage-pill uppercase px-2 py-0.5 rounded bg-jdteal text-white">Shortlisted</span>}
+                          {c.stage === "maybe"     && <span className="stage-pill uppercase px-2 py-0.5 rounded bg-amber-400 text-jdnavy">Maybe</span>}
+                          {c.stage === "pass"      && <span className="stage-pill uppercase px-2 py-0.5 rounded bg-rose-500 text-white">Pass</span>}
+                        </div>
+                        <div className="text-sm text-jdnavy/70">{c.title}{c.company ? ` · ${c.company}` : ""}{c.years ? ` · ${c.years} yrs` : ""}</div>
+                        {c.experience && <div className="mt-1.5 text-xs text-jdnavy/60 line-clamp-2">{c.experience}</div>}
+
+                        {/* Skill chips */}
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {mandate.must.map(k => (
+                            <Chip key={k} tone={c.mustHits.includes(k) ? "hit" : "miss"}>{k}</Chip>
+                          ))}
+                          {c.niceHits.map(k => <Chip key={k} tone="nice">+{k}</Chip>)}
+                          {c.avoidHits.map(k => <Chip key={k} tone="avoid">⚠ {k}</Chip>)}
+                        </div>
+
+                        {/* Expand for breakdown */}
+                        <details className="mt-3 text-xs">
+                          <summary className="text-jdteal hover:text-jdtealdk font-semibold">Score breakdown ▾</summary>
+                          <div className="mt-2 grid grid-cols-3 gap-3 p-3 rounded bg-jdcream border border-jdsand">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-widest text-jdnavy/50">Must-haves</div>
+                              <div className="font-semibold text-jdnavy">{c.mustHits.length}/{mandate.must.length}</div>
+                              <div className="text-jdnavy/60">{Math.round(c.mustPct*65)} pts</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] uppercase tracking-widest text-jdnavy/50">Nice-to-haves</div>
+                              <div className="font-semibold text-jdnavy">{c.niceHits.length}/{mandate.nice.length}</div>
+                              <div className="text-jdnavy/60">{Math.round(c.nicePct*20)} pts</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] uppercase tracking-widest text-jdnavy/50">Seniority signal</div>
+                              <div className="font-semibold text-jdnavy">{c.years || "—"} yrs</div>
+                              <div className="text-jdnavy/60">{c.avoidHits.length ? `−${c.avoidHits.length*12} pts (avoid)` : "no penalties"}</div>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+
+                      {/* Stage actions */}
+                      <div className="shrink-0 flex flex-col items-end gap-2">
+                        <div className="flex gap-1 bg-jdcream/80 p-1 rounded-md border border-jdsand">
+                          <StageButton color="shortlist" active={c.stage==="shortlist"} onClick={()=>setStage(c.id,"shortlist")}>Shortlist</StageButton>
+                          <StageButton color="maybe"     active={c.stage==="maybe"}     onClick={()=>setStage(c.id,"maybe")}>Maybe</StageButton>
+                          <StageButton color="pass"      active={c.stage==="pass"}      onClick={()=>setStage(c.id,"pass")}>Pass</StageButton>
+                        </div>
+                        {c.linkedin && (
+                          <a href={c.linkedin} target="_blank" rel="noopener"
+                             className="text-[11px] text-jdnavy/50 hover:text-jdteal">LinkedIn ↗</a>
+                        )}
+                        <button onClick={()=>removeCandidate(c.id)}
+                          className="text-[11px] text-jdnavy/40 hover:text-rose-500">Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Continue CTA */}
+          <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
+            <div className="text-sm text-jdnavy/70">
+              {counts.shortlist > 0
+                ? <span><b className="text-jdnavy">{counts.shortlist}</b> candidate{counts.shortlist===1?"":"s"} ready to draft outreach for.</span>
+                : <span>Mark your strongest matches as <b className="text-jdtealdk">Shortlisted</b> to draft outreach next.</span>}
+            </div>
+            <button onClick={continueToOutreach}
+              disabled={counts.shortlist===0}
+              className="bg-jdteal hover:bg-jdtealdk disabled:bg-jdsand disabled:text-jdnavy/40 disabled:cursor-not-allowed text-white font-semibold px-6 py-3 rounded-md tracking-wide transition-colors">
+              Continue to Outreach →
+            </button>
+          </div>
+        </section>
+      </main>
+
+      <footer className="max-w-7xl mx-auto px-6 py-8 text-xs text-jdnavy/40">
+        JD AI Search Agent · Step 2 of 3 · Candidate ranking is computed locally against the active mandate.
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

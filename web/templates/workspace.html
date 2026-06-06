@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Workspace · JD AI Search Agent{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>{{ current_mandate.name }}</h1>
+  <p class="muted">Workspace: <code>{{ current_mandate.folder }}</code></p>
+  <p>Work this mandate through the three screens in order. Each step ends with
+     your review before the next begins.</p>
+</section>
+
+<ol class="step-cards">
+  <li class="card step-card">
+    <div class="step-card-head">
+      <span class="step-num">1</span>
+      <h2>Intake → Search Criteria</h2>
+      {% if has_criteria %}<span class="badge badge-done">Done</span>{% endif %}
+    </div>
+    <p class="muted">Capture the client brief and generate an editable LinkedIn
+       RPS search string.</p>
+    <a class="secondary" href="{{ url_for('intake') }}">
+      {% if has_criteria %}Review intake{% else %}Start intake{% endif %}
+    </a>
+  </li>
+
+  <li class="card step-card {% if not has_criteria %}step-card-locked{% endif %}">
+    <div class="step-card-head">
+      <span class="step-num">2</span>
+      <h2>Candidate Ranking</h2>
+      {% if has_ranking %}<span class="badge badge-done">Ranked</span>{% endif %}
+    </div>
+    <p class="muted">Upload a LinkedIn RPS CSV export and score every candidate
+       against the criteria.</p>
+    {% if has_criteria %}
+      <a class="secondary" href="{{ url_for('rank') }}">Open ranking</a>
+    {% else %}
+      <span class="muted">Generate criteria first.</span>
+    {% endif %}
+  </li>
+
+  <li class="card step-card {% if not selected_count %}step-card-locked{% endif %}">
+    <div class="step-card-head">
+      <span class="step-num">3</span>
+      <h2>InMail Drafts</h2>
+      {% if selected_count %}<span class="badge">{{ selected_count }} selected</span>{% endif %}
+    </div>
+    <p class="muted">Draft a personalised InMail for each shortlisted candidate,
+       then edit before sending.</p>
+    {% if selected_count %}
+      <a class="secondary" href="{{ url_for('inmail') }}">Open drafts</a>
+    {% else %}
+      <span class="muted">Shortlist candidates on the Ranking screen first.</span>
+    {% endif %}
+  </li>
+</ol>
+{% endblock %}

@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Intake · JD AI Search Agent{% endblock %}
+{% block page_class %}page-wide intake-page{% endblock %}
+
+{% set seniority_options = [
+  "Junior", "Mid-level", "Senior", "Senior / Lead", "Lead / Staff",
+  "Director / Principal", "Head / VP", "C-Suite"
+] %}
+{% set completeness_items = [
+  ("role_title", "Role title"),
+  ("client_name", "Client / company"),
+  ("location", "Location"),
+  ("seniority", "Level / seniority"),
+  ("must_have", "Must-have skills"),
+  ("responsibilities", "Role summary"),
+] %}
+{% macro from_jd(field) -%}
+  {% if field in extracted_fields %}
+    <span class="from-jd" title="Auto-filled from the uploaded JD">
+      <span class="from-jd-dot" aria-hidden="true"></span>FROM JD
+    </span>
+  {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="intake-grid">
+
+  {# ----------- Sidebar: JD upload + completeness ----------- #}
+  <aside class="intake-side">
+    <section class="card">
+      <h2>Upload the JD</h2>
+      <p class="muted">PDF, Word (.docx), or plain text. The agent will fill in the
+        brief for you to review.</p>
+
+      <form action="{{ url_for('intake_upload') }}" method="post"
+            enctype="multipart/form-data" class="jd-upload-form"
+            data-spinner data-spinner-label="Reading the JD…">
+        <label for="jd_file" class="drop-zone" id="jd-drop">
+          <span class="drop-icon" aria-hidden="true">↑</span>
+          <span class="drop-title">Drop a JD file here</span>
+          <span class="drop-sub">or click to browse · PDF / DOCX / TXT</span>
+          <input id="jd_file" name="jd_file" type="file"
+            accept=".pdf,.docx,.doc,.txt,.md,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            class="drop-input" />
+        </label>
+        <div class="drop-actions">
+          <button type="submit" class="primary">Extract brief</button>
+        </div>
+      </form>
+
+      {% if jd_filename and extracted_fields %}
+        <div class="extracted-callout">
+          <span class="extracted-callout-title">✓ Parsed {{ jd_filename }}</span>
+          <span class="extracted-callout-meta">
+            {{ extracted_fields | length }} field{% if extracted_fields|length != 1 %}s{% endif %}
+            pre-filled. Review and edit below.
+          </span>
+        </div>
+      {% endif %}
+
+      <p class="privacy-note">Files are read on this device only — they aren't sent
+        to Claude until you click <em>Generate search criteria</em>.</p>
+    </section>
+
+    <section class="card completeness-card">
+      <div class="completeness-head">
+        <h2>Brief completeness</h2>
+        <span class="completeness-pct">{{ completeness_pct }}%</span>
+      </div>
+      <div class="completeness-bar" aria-hidden="true">
+        <span style="width: {{ completeness_pct }}%"></span>
+      </div>
+      <ul class="completeness-list">
+        {% for field, label in completeness_items %}
+          {% set value = (brief | attr(field)) | string | trim %}
+          {% set filled = value | length > 0 %}
+          <li class="completeness-item {% if filled %}is-filled{% endif %}">
+            <span class="completeness-dot" aria-hidden="true"></span>
+            <span class="completeness-label">{{ label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </aside>
+
+  {# ----------- Main: editable brief ----------- #}
+  <section class="card intake-main brief-card">
+    <div class="intake-head">
+      <div>
+        <h1>Mandate brief</h1>
+        <p class="muted">
+          Fields with a teal dot were auto-filled from the JD — edit anything before
+          generating criteria.
+        </p>
+      </div>
+      {% if extracted_fields or (brief | attr('role_title') | string | trim) %}
+        <form action="{{ url_for('intake_clear') }}" method="post" class="inline">
+          <button type="submit" class="link-button"
+                  onclick="return confirm('Clear the current brief?');">
+            Clear all
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    <form action="{{ url_for('intake_generate') }}" method="post"
+          data-spinner data-spinner-label="Generating search criteria…"
+          class="brief-grid">
+
+      {# Row 1 — Role title #}
+      <div class="field">
+        <div class="field-head">
+          <label for="role_title">Role title</label>
+          {{ from_jd('role_title') }}
+        </div>
+        <input id="role_title" name="role_title" type="text"
+          value="{{ brief.role_title }}" placeholder="Senior Data Engineer" autocomplete="off" />
+      </div>
+
+      {# Row 2 — Client + Location + Level #}
+      <div class="row-3">
+        <div class="field">
+          <div class="field-head">
+            <label for="client_name">Client / Company</label>
+            {{ from_jd('client_name') }}
+          </div>
+          <input id="client_name" name="client_name" type="text"
+            value="{{ brief.client_name }}" placeholder="Confidential" autocomplete="off" />
+        </div>
+        <div class="field">
+          <div class="field-head">
+            <label for="location">Location</label>
+            {{ from_jd('location') }}
+          </div>
+          <input id="location" name="location" type="text"
+            value="{{ brief.location }}" placeholder="Singapore (hybrid)" autocomplete="off" />
+        </div>
+        <div class="field">
+          <div class="field-head">
+            <label for="seniority">Level / Seniority</label>
+            {{ from_jd('seniority') }}
+          </div>
+          <select id="seniority" name="seniority">
+            <option value="">—</option>
+            {% set current_level = brief.seniority %}
+            {% for opt in seniority_options %}
+              <option value="{{ opt }}" {% if opt == current_level %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+            {% if current_level and current_level not in seniority_options %}
+              <option value="{{ current_level }}" selected>{{ current_level }}</option>
+            {% endif %}
+          </select>
+        </div>
+      </div>
+
+      {# Must-have skills (chip) #}
+      <div class="field">
+        <div class="field-head">
+          <label for="must_have">Must-have skills</label>
+          {{ from_jd('must_have') }}
+        </div>
+        <div class="chip-input" data-chip-input data-tone="default">
+          <span class="chip-list"></span>
+          <input type="text" class="chip-typer"
+            placeholder="Type a skill and press Enter (e.g. Python)…" />
+          <textarea name="must_have" id="must_have" rows="1" class="chip-input-hidden"
+            aria-hidden="true" tabindex="-1">{{ brief.must_have }}</textarea>
+        </div>
+      </div>
+
+      {# Nice-to-have skills (chip) #}
+      <div class="field">
+        <div class="field-head">
+          <label for="nice_to_have">Nice-to-have skills</label>
+          {{ from_jd('nice_to_have') }}
+        </div>
+        <div class="chip-input" data-chip-input data-tone="nice">
+          <span class="chip-list"></span>
+          <input type="text" class="chip-typer"
+            placeholder="dbt, Snowflake, FSI…" />
+          <textarea name="nice_to_have" id="nice_to_have" rows="1" class="chip-input-hidden"
+            aria-hidden="true" tabindex="-1">{{ brief.nice_to_have }}</textarea>
+        </div>
+      </div>
+
+      {# Avoid flags (chip) #}
+      <div class="field">
+        <div class="field-head">
+          <label for="exclusions">Avoid flags</label>
+          {{ from_jd('exclusions') }}
+        </div>
+        <div class="chip-input" data-chip-input data-tone="avoid">
+          <span class="chip-list"></span>
+          <input type="text" class="chip-typer"
+            placeholder="junior only, contractor-only…" />
+          <textarea name="exclusions" id="exclusions" rows="1" class="chip-input-hidden"
+            aria-hidden="true" tabindex="-1">{{ brief.exclusions }}</textarea>
+        </div>
+        <p class="field-hint">Signals that disqualify or downrank a candidate.</p>
+      </div>
+
+      {# Role summary #}
+      <div class="field">
+        <div class="field-head">
+          <label for="responsibilities">Role summary</label>
+          {{ from_jd('responsibilities') }}
+        </div>
+        <textarea id="responsibilities" name="responsibilities" rows="4"
+          placeholder="One-paragraph description of the role: what they'll build, who they'll work with, what success looks like…">{{ brief.responsibilities }}</textarea>
+      </div>
+
+      {# Industry travels through to the Claude prompt but isn't shown — the
+         agent fills it via extraction when the JD names a sector. #}
+      <input type="hidden" name="industry" value="{{ brief.industry }}" />
+
+      <div class="form-actions">
+        <button type="submit" class="primary">Generate search criteria</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+  // Drop-zone enhancement: highlight while dragging and auto-submit on drop
+  // so the consultant doesn't have to click the file input first.
+  (function () {
+    "use strict";
+    var zone = document.getElementById("jd-drop");
+    var input = document.getElementById("jd_file");
+    if (!zone || !input) return;
+
+    function show(name) {
+      var title = zone.querySelector(".drop-title");
+      if (title && name) title.textContent = name;
+    }
+
+    input.addEventListener("change", function () {
+      if (input.files && input.files[0]) {
+        show(input.files[0].name);
+        input.form.requestSubmit ? input.form.requestSubmit() : input.form.submit();
+      }
+    });
+
+    ["dragenter", "dragover"].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        zone.classList.add("is-dragging");
+      });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        zone.classList.remove("is-dragging");
+      });
+    });
+    zone.addEventListener("drop", function (e) {
+      if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files[0]) return;
+      input.files = e.dataTransfer.files;
+      show(e.dataTransfer.files[0].name);
+      input.form.requestSubmit ? input.form.requestSubmit() : input.form.submit();
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Search Criteria · JD AI Search Agent{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Search criteria</h1>
+  <p class="muted">Generated from the brief. Edit anything below — one item per
+     line for the lists — then save before ranking candidates.</p>
+
+  <form action="{{ url_for('criteria_save') }}" method="post">
+    <div class="criteria-grid">
+      {% for field, label in list_fields %}
+        <div class="field">
+          <label for="{{ field }}">{{ label }}</label>
+          <textarea id="{{ field }}" name="{{ field }}" rows="4">{{ (criteria | attr(field)) | join('\n') }}</textarea>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="field">
+      <label for="boolean_string">Boolean string (paste into LinkedIn RPS)</label>
+      <textarea id="boolean_string" name="boolean_string" rows="3" class="mono">{{ criteria.boolean_string }}</textarea>
+    </div>
+
+    <div class="field">
+      <label for="search_rationale">Search rationale</label>
+      <textarea id="search_rationale" name="search_rationale" rows="3">{{ criteria.search_rationale }}</textarea>
+    </div>
+
+    <div class="form-actions">
+      <a class="secondary" href="{{ url_for('intake') }}">← Back to brief</a>
+      <button type="submit" class="primary">Save criteria</button>
+      <button type="button" class="secondary" id="open-rps">Open LinkedIn RPS ↗</button>
+      <a class="secondary" href="{{ url_for('rank') }}">Continue to ranking →</a>
+    </div>
+  </form>
+</section>
+
+<script>
+  // Open LinkedIn Recruiter search in a new tab with the current (possibly
+  // edited) Boolean string pre-loaded. Reads the live textarea value so it
+  // reflects any unsaved edits.
+  document.getElementById('open-rps').addEventListener('click', function () {
+    var boolean = document.getElementById('boolean_string').value.trim();
+    if (!boolean) {
+      alert('Add a Boolean string first.');
+      return;
+    }
+    var url = 'https://www.linkedin.com/talent/search?searchKeyword='
+      + encodeURIComponent(boolean);
+    window.open(url, '_blank', 'noopener');
+  });
+</script>
+{% endblock %}
