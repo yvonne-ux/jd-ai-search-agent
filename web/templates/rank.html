@@ -5,8 +5,9 @@
 {% block content %}
 <section class="card">
   <h1>Candidate ranking</h1>
-  <p class="muted">Upload a LinkedIn RPS CSV export. Every candidate is scored
-     against the criteria below, so you can prioritise outreach.</p>
+  <p class="muted">Paste the candidates from your LinkedIn Recruiter search.
+     Every candidate is scored against the criteria below, so you can prioritise
+     outreach.</p>
 
   <details class="criteria-recap">
     <summary>Ranking against these criteria</summary>
@@ -23,9 +24,16 @@
 
   <div class="boolean-step">
     <ol class="boolean-instructions">
-      <li>Copy the Boolean string → paste into Claude in Chrome on LinkedIn
-          Recruiter → export results as CSV.</li>
-      <li>Upload the CSV below to rank candidates.</li>
+      <li><strong>Search on LinkedIn Recruiter.</strong> Copy the Boolean string
+          below and paste it into the LinkedIn Recruiter search box, then run the
+          search.</li>
+      <li><strong>Copy the results.</strong> On the results page, select the
+          candidate list (names, titles, companies, locations) and copy it
+          (⌘A then ⌘C, or just select the rows). One page shows ~25 — you can
+          paste several pages' worth at once.</li>
+      <li><strong>Paste below and rank.</strong> The agent reads the pasted text,
+          pulls out each candidate, and scores them against your criteria. No
+          browser extension or CSV needed.</li>
     </ol>
     {% if criteria.boolean_string %}
       <div class="boolean-box">
@@ -41,13 +49,27 @@
     {% endif %}
   </div>
 
-  <form action="{{ url_for('rank_run') }}" method="post" enctype="multipart/form-data"
-        class="upload-form" data-spinner data-spinner-label="Scoring candidates…">
-    <input type="file" name="csv" accept=".csv" required />
-    <button type="submit" class="primary">
-      {% if has_csv %}Re-rank from new CSV{% else %}Upload &amp; rank{% endif %}
-    </button>
+  <form action="{{ url_for('rank_paste') }}" method="post"
+        class="paste-form" data-spinner data-spinner-label="Reading candidates &amp; scoring…">
+    <label for="pasted-candidates"><strong>Paste candidates from LinkedIn Recruiter</strong></label>
+    <textarea id="pasted-candidates" name="pasted" rows="10"
+              placeholder="Paste the copied results here — e.g.&#10;Jane Tan — Operations Director at Marriott — Singapore&#10;Wei Lim — F&amp;B Director at Shangri-La — Manila&#10;…"></textarea>
+    <button type="submit" class="primary">Extract &amp; rank</button>
   </form>
+
+  <details class="csv-fallback">
+    <summary>Or upload a CSV instead</summary>
+    <p class="muted">If you already have a CSV export of candidates, upload it
+       here. Recognised columns include name, title/headline, company, location,
+       skills, and profile URL.</p>
+    <form action="{{ url_for('rank_run') }}" method="post" enctype="multipart/form-data"
+          class="upload-form" data-spinner data-spinner-label="Scoring candidates…">
+      <input type="file" name="csv" accept=".csv" required />
+      <button type="submit" class="secondary">
+        {% if has_csv %}Re-rank from new CSV{% else %}Upload &amp; rank{% endif %}
+      </button>
+    </form>
+  </details>
 </section>
 
 {% if rankings %}

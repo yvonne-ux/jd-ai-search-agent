@@ -55,6 +55,7 @@ from workflows.pipeline import (  # noqa: E402
 )
 from workflows.rank import rank_candidates  # noqa: E402
 
+import candidate_extract  # noqa: E402  — web/ is on sys.path
 import jd_extract  # noqa: E402  — web/ is on sys.path[0] when run directly
 import store  # noqa: E402  — web/ is on sys.path[0] when run directly
 
@@ -415,6 +416,44 @@ def create_app() -> Flask:
             return redirect(url_for("rank"))
         store.save_rankings(mandate, rankings)
         flash(f"Ranked {len(rankings)} candidates.", "success")
+        return redirect(url_for("rank"))
+
+    @app.route("/rank/paste", methods=["POST"])
+    def rank_paste():
+        """Extract candidates from text pasted off a LinkedIn Recruiter page
+        (no Chrome extension / no CSV needed) and rank them."""
+        mandate = current_mandate()
+        if mandate is None:
+            return redirect(url_for("mandates"))
+        crit = store.load_criteria(mandate)
+        if crit is None:
+            flash("Generate search criteria before ranking candidates.", "error")
+            return redirect(url_for("intake"))
+
+        pasted = (request.form.get("pasted") or "").strip()
+        if not pasted:
+            flash("Paste the candidates from your LinkedIn Recruiter results first.", "error")
+            return redirect(url_for("rank"))
+
+        try:
+            client = ClaudeClient()
+            candidates = candidate_extract.extract_candidates(pasted, client)
+            if not candidates:
+                flash(
+                    "Couldn't find any candidates in the pasted text. Make sure "
+                    "you copied the results list (names, titles, locations).",
+                    "error",
+                )
+                return redirect(url_for("rank"))
+            rankings = rank_candidates(candidates, crit, client)
+        except ClaudeError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("rank"))
+        store.save_rankings(mandate, rankings)
+        flash(
+            f"Extracted and ranked {len(rankings)} candidates from pasted text.",
+            "success",
+        )
         return redirect(url_for("rank"))
 
     @app.route("/rank/select", methods=["POST"])
